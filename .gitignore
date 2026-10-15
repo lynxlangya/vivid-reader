@@ -1,0 +1,34 @@
+# ── 书籍与衍生数据：永远不进仓库 ──
+*.epub
+*.mobi
+*.azw3
+*.pdf
+books/
+library/
+cache/
+*.sqlite
+*.sqlite3
+*.db
+
+# ── 密钥 ──
+.env
+.env.*
+!.env.example
+
+# ── 构建产物 ──
+node_modules/
+dist/
+out/
+release/
+.vite/
+*.tsbuildinfo
+
+# ── 地图瓦片（体积大，按需下载） ──
+*.pmtiles
+
+# ── 系统 / 编辑器 ──
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

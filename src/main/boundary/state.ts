@@ -53,6 +53,9 @@ export function advanceBoundary(
       archive: false,
     };
   }
+  // foliate reports a newly shown section several times; a repeat of the
+  // current page is not movement and must not cancel its pending dwell.
+  if (event.cfi === state.currentCFI) return { state, archive: false };
   // The renderer's mode is only a hint; adjacency is checked in the main process.
   const sequential =
     event.mode === 'next' &&

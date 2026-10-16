@@ -3,8 +3,9 @@ import type { SelectionRange } from '../../shared/companion';
 import type { Box } from '../glimpse/layout';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../../shared/book';
-import type { ReaderState, Navigation } from '../../shared/reading';
+import type { ReaderState } from '../../shared/reading';
 import { makeView, type FoliateView, type ReadingLocation } from './engine';
+import { navigationMode } from './navigation';
 import { injectMarks, markGeometry, type MarkHit } from './marks';
 // Moves a still-loading view offscreen without reloading its iframe, so foliate
 // can finish laying it out and be closed normally afterwards.
@@ -57,7 +58,7 @@ export function Reader({
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [pages, setPages] = useState({ current: 1, total: 1 });
-  const mode = useRef<Navigation>('jump');
+  const [mode] = useState(navigationMode);
   const prefs = useRef(preferences);
   useEffect(() => {
     prefs.current = preferences;
@@ -66,8 +67,8 @@ export function Reader({
   const currentMarks = useRef(book.marks);
   const handlers = useRef({ onHover, onClick, onState, onSelection });
   function navigate(direction: 'next' | 'prev') {
-    mode.current = direction;
-    void viewRef.current?.[direction]();
+    const view = viewRef.current;
+    if (view) void mode.turn(direction, () => view[direction]());
   }
   useEffect(() => {
     if (!state || !viewRef.current) return;
@@ -82,10 +83,10 @@ export function Reader({
   }, [state, onHover, onClick]);
   useEffect(() => {
     if (jump && viewRef.current) {
-      mode.current = 'jump';
+      mode.jump();
       void viewRef.current.goTo(jump.cfi).then(() => onJumpHandled(jump.nonce));
     }
-  }, [jump, onJumpHandled]);
+  }, [jump, onJumpHandled, mode]);
   useEffect(() => {
     const view = viewRef.current;
     if (!view?.renderer) return;
@@ -122,13 +123,11 @@ export function Reader({
         return;
       if (['ArrowRight', ' '].includes(event.key)) {
         event.preventDefault();
-        mode.current = 'next';
-        void view.next();
+        void mode.turn('next', () => view.next());
       }
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        mode.current = 'prev';
-        void view.prev();
+        void mode.turn('prev', () => view.prev());
       }
     };
     view.addEventListener('load', (event) => {
@@ -184,7 +183,6 @@ export function Reader({
         total: Math.max(1, view.renderer.pages - 2),
       });
       const navigation = mode.current;
-      mode.current = 'jump';
       void window.vivid
         .relocate(next.cfi, navigation)
         .then((next) => {
@@ -248,7 +246,7 @@ export function Reader({
       markCleanup.clear();
       if (!load.loading) release();
     };
-  }, [book]);
+  }, [book, mode]);
   // Layout cleanup runs before React detaches the host; a detached iframe
   // would lose its document while foliate is still loading it.
   useLayoutEffect(
@@ -278,7 +276,7 @@ export function Reader({
               <button
                 key={item.href}
                 onClick={() => {
-                  mode.current = 'jump';
+                  mode.jump();
                   void viewRef.current?.goTo(item.href);
                   setToc(false);
                 }}

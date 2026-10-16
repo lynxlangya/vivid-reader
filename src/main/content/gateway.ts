@@ -27,6 +27,7 @@ interface MentionIndex {
 // Keyed by the repository's frozen mention snapshot, so a write that replaces
 // the snapshot also retires the derived index.
 const indexes = new WeakMap<object, MentionIndex>();
+const PAGE_GAP = 2;
 export class ContentGateway {
   constructor(
     private repo: Repository,
@@ -141,23 +142,25 @@ export class ContentGateway {
     ];
   }
   // A page follows another only if no visible text is skipped between them.
+  // foliate's visible range can drop a line-final character (trimmed CJK
+  // punctuation), so a gap of at most PAGE_GAP non-space characters still counts.
   follows(fromPage: string, toPage: string) {
     try {
       const [from, end] = this.span(fromPage),
         [start] = this.span(toPage);
       if (compareCFI(start.cfi, from.cfi) < 0) return false;
       if (compareCFI(start.cfi, end.cfi) <= 0) return true;
-      return this.chapters()
-        .filter((c) => c.index >= end.chapter && c.index <= start.chapter)
-        .every(
-          (c) =>
-            !/\S/.test(
-              c.text.slice(
-                c.index === end.chapter ? end.offset : 0,
-                c.index === start.chapter ? start.offset : c.text.length,
-              ),
-            ),
+      let skipped = 0;
+      for (const c of this.chapters()) {
+        if (c.index < end.chapter || c.index > start.chapter) continue;
+        const gap = c.text.slice(
+          c.index === end.chapter ? end.offset : 0,
+          c.index === start.chapter ? start.offset : c.text.length,
         );
+        for (const char of gap)
+          if (/\S/.test(char) && ++skipped > PAGE_GAP) return false;
+      }
+      return true;
     } catch {
       return false;
     }

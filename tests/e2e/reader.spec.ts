@@ -163,6 +163,47 @@ test('roundtrips 200 offsets in the optional external EPUB without logging text'
   }
 });
 
+test('reading the optional external EPUB across a section advances the boundary', async () => {
+  test.skip(!process.env.VIVID_TEST_EPUB, 'No external test EPUB supplied');
+  test.setTimeout(120000);
+  const path = process.env.VIVID_TEST_EPUB!;
+  const { chapters } = parseEpub(await readFile(path));
+  const from = chapters.findIndex(
+    (c, i) => i > 0 && c.text.length && chapters[i + 1]?.text.length,
+  );
+  expect(from).toBeGreaterThan(0);
+  const app = await launch(
+    await mkdtemp(join(tmpdir(), 'vivid-external-boundary-')),
+  );
+  try {
+    const page = await app.firstWindow();
+    await importFile(app, page, path);
+    const pager = page.locator('.pager');
+    await expect(pager).toHaveText(/^— \d+ \/ \d+ —$/);
+    // Mark the last page of one section as read, then turn into the next.
+    const last = await page.evaluate(async (index) => {
+      const view = document.querySelector('foliate-view') as FoliateView;
+      await view.goTo(index + 1);
+      await view.prev();
+      return view.lastLocation!.cfi;
+    }, from);
+    await expect(pager).toHaveAttribute('data-cfi', last);
+    await page.evaluate((cfi) => window.vivid.setBoundary(cfi), last);
+    for (let turn = 0; turn < 2; turn++) {
+      const before = (await pager.getAttribute('data-cfi'))!;
+      await page.getByRole('button', { name: '下一页', exact: true }).click();
+      await expect(pager).not.toHaveAttribute('data-cfi', before);
+      await page.waitForTimeout(5400);
+      const state = (await page.evaluate(() => window.vivid.readerState()))!;
+      expect(state.currentChapter).toBeGreaterThan(from);
+      expect(state.boundaryChapter).toBe(state.currentChapter);
+      await expect(pager).toHaveText(/^— \d+ \/ \d+ —$/);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test('launching from root imports an image-only cover, preserves CFI mapping, and cancels dwell on the shelf', async () => {
   const data = await mkdtemp(join(tmpdir(), 'vivid-reader-lifecycle-'));
   const file = await buildEpub({ imageOnlyCover: true });

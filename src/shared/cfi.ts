@@ -2,8 +2,10 @@ import * as CFI from '../renderer/vendor/foliate-js/epubcfi.js';
 import type { Position, PositionCodec } from './position';
 export function validateCFI(value: string): string {
   const bare = value.replace(/\[(?:\^.|[^\]])*\]/g, '');
+  // A range part may be empty: foliate writes `,,/1:5` when a page starts at
+  // the parent element itself.
   if (
-    !/^epubcfi\((?:\/\d+(?::\d+)?)+(?:!(?:\/\d+(?::\d+)?)+)?(?:,(?:\/\d+(?::\d+)?)+){0,2}\)$/.test(
+    !/^epubcfi\((?:\/\d+(?::\d+)?)+(?:!(?:\/\d+(?::\d+)?)+)?(?:,(?:\/\d+(?::\d+)?)*){0,2}\)$/.test(
       bare,
     )
   )

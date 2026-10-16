@@ -125,3 +125,27 @@ test('a next that skips text is treated as a jump and never advances', () => {
     advanceBoundary(after, { type: 'dwell', now: 99999 }).state.boundaryCFI,
   ).toBe(state.boundaryCFI);
 });
+test('a page reported again keeps its pending dwell', () => {
+  // Crossing into a section, foliate emits the same page several times.
+  const turned = advanceBoundary(state, {
+    type: 'relocate',
+    mode: 'next',
+    adjacent: true,
+    cfi: cfi(0, 20),
+    now: 100,
+  }).state;
+  let repeated = turned;
+  for (const mode of ['next', 'jump'] as const)
+    repeated = advanceBoundary(repeated, {
+      type: 'relocate',
+      mode,
+      adjacent: false,
+      cfi: cfi(0, 20),
+      now: 200,
+    }).state;
+  expect(repeated).toEqual(turned);
+  expect(
+    advanceBoundary(repeated, { type: 'dwell', now: 100 + DWELL_MS }).state
+      .boundaryCFI,
+  ).toBe(cfi(0, 20));
+});

@@ -125,7 +125,7 @@ test('cards and actual lookup tools never expose whole-book original-name guesse
     repo.close();
   }
 });
-test('page adjacency allows whitespace and overlap but rejects skipped text', async () => {
+test('page adjacency allows whitespace, overlap and a trimmed line end but rejects skipped text', async () => {
   const { repo, gateway, chapters } = await contentFixture();
   // Build a page range CFI under the chapter body, as foliate reports pages.
   const page = (chapter: number, from: number, to: number) => {
@@ -147,10 +147,21 @@ test('page adjacency allows whitespace and overlap but rejects skipped text', as
     ).toBe(true);
     expect(gateway.follows(page(1, 0, 20), page(1, 17, 40))).toBe(true);
     expect(gateway.follows(page(1, 0, 20), page(1, 25, 40))).toBe(false);
+    expect(gateway.follows(page(1, 0, 20), page(1, 21, 40))).toBe(true);
+    expect(gateway.follows(page(1, 0, 20), page(1, 22, 40))).toBe(true);
+    expect(gateway.follows(page(1, 0, 20), page(1, 23, 40))).toBe(false);
+    // A page that starts exactly at a paragraph leaves the range start empty.
+    const atParagraph = (step: number) =>
+      `${chapters[1].baseCFI.slice(0, -1)}!/4/${step},,/1:10)`;
+    expect(gateway.follows(page(1, 3, 39), atParagraph(6))).toBe(true);
+    expect(gateway.follows(page(1, 3, 39), atParagraph(8))).toBe(false);
+    expect(gateway.position(atParagraph(6), true).offset).toBe(49);
     expect(gateway.follows(page(1, 10, 20), page(1, 5, 30))).toBe(false);
     const last = chapters[1].text.length;
     expect(gateway.follows(page(1, 20, last), page(2, 0, 20))).toBe(true);
-    expect(gateway.follows(page(1, 20, last - 2), page(2, 0, 20))).toBe(false);
+    // foliate may leave one or two line-final characters out of both pages.
+    expect(gateway.follows(page(1, 20, last - 2), page(2, 0, 20))).toBe(true);
+    expect(gateway.follows(page(1, 20, last - 4), page(2, 0, 20))).toBe(false);
     expect(gateway.follows(page(1, 20, last), page(3, 0, 20))).toBe(false);
     expect(gateway.follows(page(1, 20, last), 'epubcfi(bad)')).toBe(false);
     // A page with no visible text reports the bare chapter body.

@@ -13,13 +13,15 @@ import {
   GlossSchema,
   CorrectSchema,
   WikiSearchSchema,
+  AskSchema,
+  SelectionSchema,
 } from '../../shared/ipc';
 import type { OpenBook } from '../../shared/book';
 import type { PipelineStatus } from '../../shared/pipeline';
 import { BookStore, type StoredBook } from '../content/book-store';
 import { parseEpub, cfiAt } from '../content/epub';
 import { KeyStore } from '../llm/keys';
-import { completeText } from '../llm/model';
+import { completeText, models, getTextModel } from '../llm/model';
 import { openRepository } from '../db/repository';
 import { runPipeline } from '../pipeline/pipeline';
 import { WikidataClient } from '../wikidata/client';
@@ -33,6 +35,9 @@ import {
 } from '../boundary/state';
 import type { Navigation } from '../../shared/reading';
 import type { WikiCandidate } from '../../shared/entity';
+import type { AskRequest, SelectionRange } from '../../shared/companion';
+import { CompanionService } from '../agent/companion';
+import { testCompanionBackend } from '../agent/testing';
 export function registerIPC() {
   const dir = app.getPath('userData');
   const books = new BookStore(dir);
@@ -44,6 +49,7 @@ export function registerIPC() {
   let boundary: BoundaryState | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let gloss: GlossService | undefined;
+  let companion: CompanionService | undefined;
   const candidates = new Map<string, WikiCandidate[]>();
   const gateway = () => {
     if (!current) throw new Error('No current book');
@@ -122,6 +128,7 @@ export function registerIPC() {
     const initial = cfiAt(parsed.chapters[0], 0);
     if (!repo.progress(book.id))
       repo.saveProgress(book.id, book.currentCFI ?? initial, initial);
+    companion?.cancel();
     clearTimeout(timer);
     current = { ...book, currentCFI: repo.progress(book.id)!.current };
     boundary = {
@@ -134,6 +141,16 @@ export function registerIPC() {
       if (!key) throw new Error('No model key');
       return completeText(context, key);
     });
+    const backend =
+      !app.isPackaged && process.env.VIVID_TEST_AGENT === 'faux'
+        ? testCompanionBackend()
+        : {
+            model: getTextModel(),
+            streamFn: models.streamSimple.bind(models),
+            getApiKey: async () =>
+              (await keys.get()) ?? process.env.DEEPSEEK_API_KEY,
+          };
+    companion = new CompanionService(repo, content, backend);
     start();
     const result: OpenBook = {
       id: book.id,
@@ -216,7 +233,12 @@ export function registerIPC() {
     const cfi = gateway().position((payload as { cfi: string }).cfi, true).cfi;
     const result = advanceBoundary(boundary!, { type: 'manual', cfi });
     boundary = result.state;
-    if (result.archive) repo.archiveConversations(current!.id);
+    if (result.archive) {
+      companion?.cancel();
+      repo.archiveConversations(current!.id);
+      for (const win of BrowserWindow.getAllWindows())
+        win.webContents.send('vivid:companion', companion!.history());
+    }
     clearTimeout(timer);
     persist();
     notify();
@@ -263,6 +285,26 @@ export function registerIPC() {
     if (!gateway().card(id)) return [];
     candidates.set(id, found);
     return found;
+  });
+  handle('vivid:ask', AskSchema, async (payload) => {
+    if (!companion) throw new Error('Open a book first');
+    await companion.ask(payload as AskRequest, (update) => {
+      for (const win of BrowserWindow.getAllWindows())
+        win.webContents.send('vivid:companion', update);
+    });
+  });
+  handle(
+    'vivid:conversation',
+    EmptySchema,
+    () => companion?.history() ?? { messages: [], busy: false },
+  );
+  handle('vivid:selection', SelectionSchema, (payload) => {
+    const range = payload as SelectionRange;
+    try {
+      return gateway().selectionAllowed(range.start, range.end);
+    } catch {
+      return false;
+    }
   });
   handle('vivid:set-key', ApiKeySchema, async (payload) => {
     await keys.set((payload as { value: string }).value);

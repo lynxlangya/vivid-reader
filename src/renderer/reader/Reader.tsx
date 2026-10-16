@@ -1,3 +1,5 @@
+import type { SelectionRange } from '../../shared/companion';
+import type { Box } from '../glimpse/layout';
 import { useEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../../shared/book';
 import type { ReaderState, Navigation } from '../../shared/reading';
@@ -7,6 +9,7 @@ interface Props {
   book: OpenBook;
   state: ReaderState | null;
   onState: (state: ReaderState) => void;
+  onSelection: (selection: (SelectionRange & { rect: Box }) | null) => void;
   theme: string;
   jump?: string;
   onHover: (hit: MarkHit | null) => void;
@@ -18,6 +21,7 @@ export function Reader({
   onClick,
   state,
   onState,
+  onSelection,
   theme,
   jump,
 }: Props) {
@@ -32,7 +36,7 @@ export function Reader({
   const mode = useRef<Navigation>('jump');
   const cleanup = useRef(new Map<Document, () => void>());
   const currentMarks = useRef(book.marks);
-  const handlers = useRef({ onHover, onClick, onState });
+  const handlers = useRef({ onHover, onClick, onState, onSelection });
   function navigate(direction: 'next' | 'prev') {
     mode.current = direction;
     void viewRef.current?.[direction]();
@@ -63,8 +67,8 @@ export function Reader({
     );
   }, [theme]);
   useEffect(() => {
-    handlers.current = { onHover, onClick, onState };
-  }, [onHover, onClick, onState]);
+    handlers.current = { onHover, onClick, onState, onSelection };
+  }, [onHover, onClick, onState, onSelection]);
   useEffect(() => {
     const markCleanup = cleanup.current;
     const view = makeView();
@@ -93,6 +97,30 @@ export function Reader({
         event as CustomEvent<{ doc: Document; index: number }>
       ).detail;
       doc.addEventListener('keydown', key);
+      doc.addEventListener('mouseup', () => {
+        const selected = doc.getSelection();
+        if (!selected || selected.isCollapsed || !selected.rangeCount) {
+          handlers.current.onSelection(null);
+          return;
+        }
+        const range = selected.getRangeAt(0),
+          r = range.getBoundingClientRect(),
+          f = doc.defaultView!.frameElement!.getBoundingClientRect();
+        const a = range.cloneRange(),
+          b = range.cloneRange();
+        a.collapse(true);
+        b.collapse(false);
+        handlers.current.onSelection({
+          start: view.getCFI(index, a),
+          end: view.getCFI(index, b),
+          rect: {
+            left: r.left + f.left,
+            right: r.right + f.left,
+            top: r.top + f.top,
+            bottom: r.bottom + f.top,
+          },
+        });
+      });
       cleanup.current.get(doc)?.();
       cleanup.current.set(
         doc,
@@ -108,6 +136,7 @@ export function Reader({
     });
     view.addEventListener('relocate', (event) => {
       const next = (event as CustomEvent<ReadingLocation>).detail;
+      handlers.current.onSelection(null);
       setLocation(next);
       setPages({
         current: Math.max(1, view.renderer.page),

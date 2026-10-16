@@ -33,6 +33,19 @@ const api: VividAPI = {
       ipcRenderer.removeListener('vivid:state', receive);
     };
   },
+  ask: (request) => ipcRenderer.invoke('vivid:ask', request),
+  conversation: () => ipcRenderer.invoke('vivid:conversation', {}),
+  selectionAllowed: (range) => ipcRenderer.invoke('vivid:selection', range),
+  onCompanion: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      value: Parameters<typeof listener>[0],
+    ) => listener(value);
+    ipcRenderer.on('vivid:companion', receive);
+    return () => {
+      ipcRenderer.removeListener('vivid:companion', receive);
+    };
+  },
   pipelineStatus: () => ipcRenderer.invoke('vivid:pipeline-status', {}),
   preprocess: () => ipcRenderer.invoke('vivid:preprocess', {}),
   reviewEntities: () => ipcRenderer.invoke('vivid:review', {}),

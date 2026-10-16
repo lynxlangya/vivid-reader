@@ -505,3 +505,96 @@ foliate-view {
     animation: none;
   }
 }
+.companion {
+  display: flex;
+  flex-direction: column;
+  padding: 24px 22px;
+}
+.companion header {
+  flex-shrink: 0;
+}
+.dialogue {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.dialogue-user {
+  text-align: right;
+  padding-top: 22px;
+}
+.dialogue-user p {
+  font: 500 13px/1.6 var(--font-ui);
+  color: var(--ink-soft);
+}
+.dialogue-user small {
+  color: var(--smoke);
+  font-size: 11px;
+}
+.dialogue-assistant {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0 22px;
+}
+.dialogue-assistant p {
+  font: 16px/1.8 var(--voice-note);
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.citation {
+  color: var(--accent);
+  font: 12px var(--font-ui);
+  padding-left: 0;
+}
+.companion-compose {
+  padding-top: 18px;
+  flex-shrink: 0;
+}
+.summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 1px;
+}
+.summary-actions button {
+  font-size: 11px;
+  padding: 4px 2px;
+}
+.companion textarea {
+  background: var(--sand-deep);
+  color: var(--ink);
+  border: 0;
+  border-radius: 8px;
+  padding: 12px;
+  width: 100%;
+  height: 90px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.companion-compose > button {
+  display: block;
+  margin-left: auto;
+  font-size: 11px;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.selection-toolbar {
+  position: fixed;
+  z-index: 18;
+  background: var(--silk);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--sh-2);
+  padding: 4px;
+}

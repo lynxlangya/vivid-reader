@@ -1,3 +1,6 @@
+import type { SelectionRange } from '../shared/companion';
+import type { Box } from './glimpse/layout';
+import { Companion } from './companion/Companion';
 import { useEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../shared/book';
 import { Reader } from './reader/Reader';
@@ -8,6 +11,27 @@ import { Card } from './glimpse/Card';
 export function App() {
   const [book, setBook] = useState<OpenBook | null>(null);
   const [readerState, setReaderState] = useState<ReaderState | null>(null);
+  const [selection, setSelection] = useState<
+    (SelectionRange & { rect: Box }) | null
+  >(null);
+  const [allowed, setAllowed] = useState(false);
+  const [jump, setJump] = useState<string>();
+  const [summaryRequest, setSummaryRequest] = useState<{
+    nonce: number;
+    scope: 'selection';
+  }>();
+  useEffect(() => {
+    let live = true;
+    if (selection)
+      void window.vivid
+        .selectionAllowed({ start: selection.start, end: selection.end })
+        .then((value) => {
+          if (live) setAllowed(value);
+        });
+    return () => {
+      live = false;
+    };
+  }, [selection]);
   const [theme, setTheme] = useState('day');
   const [companion, setCompanion] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -122,6 +146,8 @@ export function App() {
           state={readerState}
           onState={setReaderState}
           theme={theme}
+          jump={jump}
+          onSelection={setSelection}
           onHover={hover}
           onClick={(next) => {
             close();
@@ -204,17 +230,50 @@ export function App() {
         </aside>
       )}
       {companion && (
-        <aside className="companion" aria-label="伴读">
-          <h2>伴读</h2>
-          <p className="boundary-label">
-            已读至 第
-            {new Intl.NumberFormat('zh-CN-u-nu-hanidec').format(
-              (readerState?.boundaryChapter ?? 0) + 1,
-            )}
-            章
-          </p>
-          <p>伴读只知道朱线之前的内容</p>
-        </aside>
+        <Companion
+          state={readerState}
+          selection={selection}
+          allowed={allowed}
+          onJump={(cfi) => {
+            close();
+            setJump(cfi);
+          }}
+          request={summaryRequest}
+        />
+      )}
+      {selection && (
+        <div
+          role="toolbar"
+          aria-label="正文选区"
+          className="selection-toolbar"
+          style={{
+            left: Math.max(
+              16,
+              Math.min(selection.rect.left, window.innerWidth - 200),
+            ),
+            top: Math.max(60, selection.rect.top - 42),
+          }}
+        >
+          <button
+            onClick={() => {
+              setCompanion(true);
+              close();
+            }}
+          >
+            问伴读
+          </button>
+          <button
+            disabled={!allowed}
+            title={!allowed ? '这段在已读范围之后' : undefined}
+            onClick={() => {
+              setCompanion(true);
+              setSummaryRequest({ nonce: Date.now(), scope: 'selection' });
+              close();
+            }}
+          >
+            总结
+          </button>
+        </div>
       )}
       {hit && (
         <Card

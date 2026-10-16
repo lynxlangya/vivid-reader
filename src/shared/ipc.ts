@@ -4,6 +4,7 @@ import type { ReviewEntity } from './entity';
 import type { PipelineStatus } from './pipeline';
 import type { ReaderState, CardData, Navigation } from './reading';
 import type { WikiCandidate } from './entity';
+import type { AskRequest, CompanionUpdate, SelectionRange } from './companion';
 export const EmptySchema = Type.Object({}, { additionalProperties: false });
 export const PingSchema = EmptySchema;
 export const PositionSchema = Type.Object(
@@ -59,6 +60,27 @@ export const WikiSearchSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+export const SelectionSchema = Type.Object(
+  {
+    start: Type.String({ maxLength: 4096 }),
+    end: Type.String({ maxLength: 4096 }),
+  },
+  { additionalProperties: false },
+);
+export const AskSchema = Type.Object(
+  {
+    question: Type.String({ maxLength: 4000 }),
+    scope: Type.Optional(
+      Type.Union([
+        Type.Literal('selection'),
+        Type.Literal('chapter'),
+        Type.Literal('to_boundary'),
+      ]),
+    ),
+    selection: Type.Optional(SelectionSchema),
+  },
+  { additionalProperties: false },
+);
 export type PingRequest = Static<typeof PingSchema>;
 export interface VividAPI {
   ping(request: PingRequest): Promise<string>;
@@ -84,5 +106,9 @@ export interface VividAPI {
     qid?: string,
   ): Promise<void>;
   searchCandidates(id: string, query: string): Promise<WikiCandidate[]>;
+  ask(request: AskRequest): Promise<void>;
+  conversation(): Promise<CompanionUpdate>;
+  selectionAllowed(range: SelectionRange): Promise<boolean>;
+  onCompanion(listener: (update: CompanionUpdate) => void): () => void;
   onReaderState(listener: (state: ReaderState) => void): () => void;
 }

@@ -11,6 +11,8 @@ import type {
   ReviewEntity,
 } from '../../shared/entity';
 import { cfiAt } from '../content/epub';
+import type { ConversationMessage } from '../../shared/companion';
+import { randomUUID } from 'node:crypto';
 import type { Mention } from '../../shared/reading';
 interface BookRecord {
   id: string;
@@ -533,6 +535,47 @@ export function openRepository(path: string) {
         model,
         Date.now(),
       );
+    },
+    conversation(bookId: string): {
+      id: string;
+      messages: ConversationMessage[];
+    } {
+      const row = db
+        .prepare(
+          'SELECT id,messages_json FROM conversations WHERE book_id=? AND archived=0',
+        )
+        .get(bookId);
+      if (row)
+        return {
+          id: String(row.id),
+          messages: JSON.parse(
+            String(row.messages_json),
+          ) as ConversationMessage[],
+        };
+      const id = randomUUID();
+      db.prepare('INSERT INTO conversations VALUES (?,?,?,0,?)').run(
+        id,
+        bookId,
+        '[]',
+        Date.now(),
+      );
+      return { id, messages: [] };
+    },
+    saveConversation(
+      bookId: string,
+      id: string,
+      messages: ConversationMessage[],
+    ) {
+      db.prepare(
+        'UPDATE conversations SET messages_json=?,updated_at=? WHERE id=? AND book_id=? AND archived=0',
+      ).run(JSON.stringify(messages), Date.now(), id, bookId);
+    },
+    conversations(bookId: string) {
+      return db
+        .prepare(
+          'SELECT id,messages_json,archived FROM conversations WHERE book_id=? ORDER BY updated_at',
+        )
+        .all(bookId);
     },
     archiveConversations(bookId: string) {
       db.prepare(

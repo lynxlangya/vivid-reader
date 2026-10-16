@@ -28,7 +28,7 @@ import type { OpenBook } from '../../shared/book';
 import type { PipelineStatus } from '../../shared/pipeline';
 import { BookStore, type StoredBook } from '../content/book-store';
 import { parseEpub, cfiAt } from '../content/epub';
-import { KeyStore } from '../llm/keys';
+import { KeyStore, modelKey } from '../llm/keys';
 import { completeText, models, getTextModel } from '../llm/model';
 import { openRepository } from '../db/repository';
 import { runPipeline } from '../pipeline/pipeline';
@@ -91,7 +91,7 @@ export function registerIPC() {
     states.set(book.id, 'running');
     queue = queue.then(async () => {
       try {
-        const apiKey = (await keys.get()) ?? process.env.DEEPSEEK_API_KEY;
+        const apiKey = await modelKey(keys, app.isPackaged);
         if (!apiKey) {
           states.set(book.id, 'missing-key');
           return;
@@ -146,7 +146,7 @@ export function registerIPC() {
     };
     const content = gateway();
     gloss = new GlossService(repo, content, async (context) => {
-      const key = (await keys.get()) ?? process.env.DEEPSEEK_API_KEY;
+      const key = await modelKey(keys, app.isPackaged);
       if (!key) throw new Error('No model key');
       return completeText(context, key, preferences.get().model);
     });
@@ -156,8 +156,7 @@ export function registerIPC() {
         : {
             model: getTextModel(preferences.get().model),
             streamFn: models.streamSimple.bind(models),
-            getApiKey: async () =>
-              (await keys.get()) ?? process.env.DEEPSEEK_API_KEY,
+            getApiKey: () => modelKey(keys, app.isPackaged),
           };
     companion = new CompanionService(repo, content, backend);
     start();
@@ -318,8 +317,7 @@ export function registerIPC() {
           : {
               model: getTextModel(value.model),
               streamFn: models.streamSimple.bind(models),
-              getApiKey: async () =>
-                (await keys.get()) ?? process.env.DEEPSEEK_API_KEY,
+              getApiKey: () => modelKey(keys, app.isPackaged),
             };
       companion = new CompanionService(repo, gateway(), backend);
       for (const win of BrowserWindow.getAllWindows())

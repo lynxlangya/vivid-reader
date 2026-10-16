@@ -36,7 +36,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => false);
   if (process.argv.includes('--report-m1')) {
     try {
-      await runReportCLI(app.getPath('userData'));
+      await runReportCLI(app.getPath('userData'), app.isPackaged);
       app.exit(0);
     } catch {
       console.error('M1 report failed. No book data was logged.');

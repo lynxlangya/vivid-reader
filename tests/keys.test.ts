@@ -8,7 +8,7 @@ const storage = vi.hoisted(() => ({
   decryptString: vi.fn(() => 'synthetic-test-secret'),
 }));
 vi.mock('electron', () => ({ safeStorage: storage }));
-import { KeyStore } from '../src/main/llm/keys';
+import { KeyStore, modelKey } from '../src/main/llm/keys';
 test('stores only safeStorage ciphertext and supports status and clear', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'vivid-keys-'));
   const keys = new KeyStore(dir);
@@ -27,4 +27,20 @@ test('stores only safeStorage ciphertext and supports status and clear', async (
     'unavailable',
   );
   expect(await keys.has()).toBe(false);
+});
+test('packaged builds ignore the environment key; development falls back to it', async () => {
+  const empty = new KeyStore(await mkdtemp(join(tmpdir(), 'vivid-keys-')));
+  const stored = new KeyStore(await mkdtemp(join(tmpdir(), 'vivid-keys-')));
+  await stored.set('synthetic-test-secret');
+  vi.stubEnv('DEEPSEEK_API_KEY', 'synthetic-env-secret');
+  try {
+    expect(await modelKey(empty, false)).toBe('synthetic-env-secret');
+    expect(await modelKey(empty, true)).toBeUndefined();
+    expect(await modelKey(stored, false)).toBe('synthetic-test-secret');
+    expect(await modelKey(stored, true)).toBe('synthetic-test-secret');
+    vi.stubEnv('DEEPSEEK_API_KEY', '');
+    expect(await modelKey(empty, false)).toBeUndefined();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

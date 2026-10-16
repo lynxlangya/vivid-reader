@@ -40,3 +40,12 @@ export class KeyStore {
     }
   }
 }
+// Packaged builds use only the safeStorage key; the environment variable is a
+// development and test convenience.
+export async function modelKey(store: KeyStore, packaged: boolean) {
+  return (
+    (await store.get()) ||
+    (packaged ? undefined : process.env.DEEPSEEK_API_KEY) ||
+    undefined
+  );
+}

@@ -450,3 +450,21 @@ Claude Code 复核时发现：主进程判定“顺读”只看渲染进程上�
 - 原偶发失败的测试连续重复 20 次全部通过。
 - `npm run check` exit 0，15 files / 49 tests passed；`npm run test:e2e` 连续两次 10 passed / 1 skipped。
 - 修复留在工作区，未提交。
+
+## Review 修复 · 打包版密钥来源与释义首次提及 · 2026-10-16
+
+### 问题
+
+- 打包后的应用在钥匙串没有 Key 时，仍会读取 `DEEPSEEK_API_KEY` 环境变量（IPC 中 4 处）。带 `--report-m1 --preprocess` 参数启动打包二进制，也会直接用环境变量里的 Key 调用模型。这等于在 safeStorage 之外多了一条密钥来源。
+- 释义按“实体 + 章节”缓存，但生成时的输入是“该处提及之前的文字”。`ensure` 接受任意已读提及：若由同章较后的提及触发，缓存的释义会用到首次提及之后的文字，再显示在首次提及的卡片上，违反 D-34。现有界面只对首次提及触发，但主进程没有约束。
+
+### 修复
+
+- `modelKey(store, packaged)` 统一密钥解析：safeStorage 中的 Key 优先；只有非打包版才回退到环境变量；空字符串视为没有 Key。IPC 的 4 处都改用它。`runReportCLI` 由入口传入 `app.isPackaged`，打包版一律视为缺 Key。
+- `glossInput` 只接受本章该实体的首次提及，其余返回 null，因此不会调用模型。非首次提及的卡片仍可显示本章已缓存、由首次提及之前文字生成的释义。
+- README 注明环境变量只在开发与测试中生效。
+
+### 测试
+
+- 新增单元测试：开发态回退到环境变量、打包态忽略环境变量、已存 Key 优先、空字符串视为无 Key；同章第二处提及无法触发释义生成（模型调用 0 次），首次提及生成后第二处卡片显示同一释义。两处改动分别撤掉后，对应测试都会失败。
+- `npm run check` exit 0，15 files / 51 tests passed；`npm run test:e2e` 10 passed / 1 skipped；`npm run test:perf` 5 passed。修复留在工作区，未提交。

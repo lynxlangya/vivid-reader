@@ -391,6 +391,9 @@ export class ContentGateway {
     before: string;
     previous: string[];
   } | null {
+    // Glosses are cached per entity and chapter, so only the chapter's first
+    // mention may produce one; later mentions would leak text past it (D-34).
+    if (!this.index().firstInChapter.has(mentionId)) return null;
     const visible = this.readMentions();
     const mention = visible.find((x) => x.id === mentionId);
     if (!mention) return null;

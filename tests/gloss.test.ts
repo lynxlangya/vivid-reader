@@ -62,3 +62,30 @@ test('gloss failures can retry without dropping basic facts', async () => {
     repo.close();
   }
 });
+test("only a chapter's first mention can produce the shared gloss", async () => {
+  const { repo, id, gateway } = await contentFixture();
+  const fake = fakeModel(['合成释义']);
+  const gloss = new GlossService(repo, gateway, fake.complete);
+  try {
+    const mark = gateway.marks(0)[0];
+    const later = repo
+      .mentions(id)
+      .find(
+        (x) =>
+          x.entityId === mark.entityId && x.chapter === 0 && x.id !== mark.id,
+      )!;
+    expect(later).toBeDefined();
+    expect(gateway.glossInput(later.id)).toBeNull();
+    await gloss.ensure(later.id, true);
+    expect(fake.provider.state.callCount).toBe(0);
+    expect(gloss.card(later.id)?.gloss.status).toBe('loading');
+    await gloss.ensure(mark.id);
+    expect(fake.provider.state.callCount).toBe(1);
+    expect(gloss.card(later.id)?.gloss).toEqual({
+      status: 'ready',
+      text: '合成释义',
+    });
+  } finally {
+    repo.close();
+  }
+});

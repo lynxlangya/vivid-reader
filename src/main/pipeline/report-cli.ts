@@ -6,11 +6,13 @@ import { completeText } from '../llm/model';
 import { WikidataClient } from '../wikidata/client';
 import { runPipeline } from './pipeline';
 import { writeM1Report } from './report';
-export async function runReportCLI(userData: string) {
+export async function runReportCLI(userData: string, packaged: boolean) {
   const repo = openRepository(join(userData, 'vivid.sqlite'));
   try {
     if (process.argv.includes('--preprocess')) {
-      if (process.env.VIVID_TEST_EPUB && process.env.DEEPSEEK_API_KEY) {
+      // Packaged builds never read model keys from the environment.
+      const apiKey = packaged ? undefined : process.env.DEEPSEEK_API_KEY;
+      if (process.env.VIVID_TEST_EPUB && apiKey) {
         const book = await new BookStore(userData).import(
           process.env.VIVID_TEST_EPUB,
         );
@@ -21,7 +23,7 @@ export async function runReportCLI(userData: string) {
             path: join(userData, 'books', `${book.id}.epub`),
             bytes: await readFile(process.env.VIVID_TEST_EPUB),
           },
-          (context) => completeText(context, process.env.DEEPSEEK_API_KEY!),
+          (context) => completeText(context, apiKey),
           new WikidataClient(repo),
           { limit: 2 },
         );

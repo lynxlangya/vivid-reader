@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../shared/book';
 import { Reader } from './reader/Reader';
+import { Review } from './Review';
 import type { MarkHit } from './reader/marks';
 export function App() {
   const [book, setBook] = useState<OpenBook | null>(null);
   const [settings, setSettings] = useState(false);
+  const [review, setReview] = useState(false);
   const [key, setKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [status, setStatus] = useState('');
@@ -81,6 +83,9 @@ export function App() {
           导入 EPUB
         </button>
         <button onClick={() => setSettings(!settings)}>设置</button>
+        {import.meta.env.DEV && (
+          <button onClick={() => setReview(true)}>开发核对</button>
+        )}
       </header>
       {book ? (
         <Reader
@@ -112,6 +117,9 @@ export function App() {
         <p className="status" role="status">
           {status}
         </p>
+      )}
+      {review && import.meta.env.DEV && (
+        <Review onClose={() => setReview(false)} />
       )}
       {settings && (
         <section className="settings" role="dialog" aria-label="模型设置">

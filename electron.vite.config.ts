@@ -10,5 +10,5 @@ export default defineConfig({
       },
     },
   },
-  renderer: { plugins: [react()] },
+  renderer: { plugins: [react()], server: { hmr: false } },
 });

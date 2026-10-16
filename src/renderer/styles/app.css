@@ -210,3 +210,36 @@ foliate-view {
   left: 40px;
   color: var(--smoke);
 }
+
+.review {
+  position: absolute;
+  inset: 60px 30px 40px;
+  overflow: auto;
+  z-index: 30;
+  background: var(--paper);
+  padding: 28px;
+}
+.review header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.review h1,
+.review h2 {
+  font-family: var(--font-book);
+}
+.review h2 {
+  font-size: 20px;
+}
+.review small {
+  font: 13px var(--font-ui);
+  color: var(--smoke);
+}
+.review article {
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+}
+.review p,
+.review li {
+  color: var(--ink-soft);
+}

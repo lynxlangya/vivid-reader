@@ -33,19 +33,21 @@ export function injectMarks(
   doc.head.append(style);
   const hitTest = (event: MouseEvent) => {
     const caret = doc.caretPositionFromPoint(event.clientX, event.clientY);
-    if (!caret) return null;
-    const target = scoped.find((x) =>
-      x.range.isPointInRange(caret.offsetNode, caret.offset),
-    );
+    const contains = (rect: DOMRect) =>
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+    const rectangles = (range: Range) => Array.from(range.getClientRects());
+    const target =
+      scoped.find(
+        (item) =>
+          caret &&
+          item.range.isPointInRange(caret.offsetNode, caret.offset) &&
+          rectangles(item.range).some(contains),
+      ) ?? scoped.find((item) => rectangles(item.range).some(contains));
     if (!target) return null;
-    const rect = Array.from(target.range.getClientRects()).find(
-      (r) =>
-        event.clientX >= r.left &&
-        event.clientX <= r.right &&
-        event.clientY >= r.top &&
-        event.clientY <= r.bottom,
-    );
-    if (!rect) return null;
+    const rect = rectangles(target.range).find(contains)!;
     const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
     if (!frame) return null;
     return {

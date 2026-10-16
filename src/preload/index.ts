@@ -8,5 +8,10 @@ const api: VividAPI = {
   setApiKey: (value) => ipcRenderer.invoke('vivid:set-key', { value }),
   hasApiKey: () => ipcRenderer.invoke('vivid:has-key', {}),
   clearApiKey: () => ipcRenderer.invoke('vivid:clear-key', {}),
+  pipelineStatus: () => ipcRenderer.invoke('vivid:pipeline-status', {}),
+  preprocess: () => ipcRenderer.invoke('vivid:preprocess', {}),
+  reviewEntities: () => ipcRenderer.invoke('vivid:review', {}),
+  markReview: (entityId, correct) =>
+    ipcRenderer.invoke('vivid:mark-review', { entityId, correct }),
 };
 contextBridge.exposeInMainWorld('vivid', api);

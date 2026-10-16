@@ -1,7 +1,7 @@
+import { launchIsolated, capture } from './helpers';
 import {
   test,
   expect,
-  _electron as electron,
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
@@ -11,12 +11,7 @@ import { tmpdir } from 'node:os';
 import { buildEpub } from '../fixtures/build-epub';
 import { parseEpub, sampleOffsets, cfiAt } from '../../src/main/content/epub';
 import type { FoliateView } from '../../src/renderer/reader/engine';
-async function launch(userData: string) {
-  return electron.launch({
-    args: ['out/main/index.js'],
-    env: { ...process.env, VIVID_USER_DATA: userData },
-  });
-}
+const launch = launchIsolated;
 async function importFile(app: ElectronApplication, page: Page, path: string) {
   await app.evaluate(({ dialog }, file) => {
     dialog.showOpenDialog = (async () => ({
@@ -93,6 +88,11 @@ test('imports, roundtrips 200 offsets, highlights without changing CFI, hovers a
     expect(probe.executed).toBe(false);
     const chapter = parsed.chapters[0];
     const cfi = cfiAt(chapter, chapter.text.indexOf('纸湾'));
+    const chapterFrame = page
+      .frames()
+      .find((frame) => frame.url().startsWith('blob:'));
+    expect(chapterFrame).toBeDefined();
+    await chapterFrame!.locator('p').first().hover();
     const point = await page.evaluate((value) => {
       const view = document.querySelector('foliate-view') as FoliateView;
       const doc = view.renderer.getContents()[0].doc;
@@ -101,15 +101,15 @@ test('imports, roundtrips 200 offsets, highlights without changing CFI, hovers a
       const r = range.getBoundingClientRect();
       const frame = doc.defaultView!.frameElement!.getBoundingClientRect();
       return {
-        x: r.x + frame.x + r.width / 2,
+        x: r.x + frame.x + r.width / 4,
         y: r.y + frame.y + r.height / 2,
       };
     }, cfi);
-    await page.mouse.move(point.x, point.y);
+    await page.mouse.move(point.x, point.y, { steps: 5 });
     await expect(page.getByRole('tooltip', { name: '实体旁注' })).toBeVisible();
     const card = await page.getByRole('tooltip').boundingBox();
     expect(card!.y >= point.y || card!.y + card!.height < point.y).toBe(true);
-    await page.screenshot({ path: '/tmp/vivid-g1-reader.png' });
+    await capture(app, page, '/tmp/vivid-g1-reader.png');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('tooltip')).toHaveCount(0);
     const before = await page.locator('.pager').getAttribute('data-cfi');

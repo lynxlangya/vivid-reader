@@ -8,7 +8,13 @@ export interface BoundaryState {
   pending?: { page: string; end: string; since: number };
 }
 export type BoundaryEvent =
-  | { type: 'relocate'; cfi: string; mode: Navigation; now: number }
+  | {
+      type: 'relocate';
+      cfi: string;
+      mode: Navigation;
+      adjacent: boolean;
+      now: number;
+    }
   | { type: 'dwell'; now: number }
   | { type: 'pause' }
   | { type: 'manual'; cfi: string };
@@ -47,8 +53,10 @@ export function advanceBoundary(
       archive: false,
     };
   }
+  // The renderer's mode is only a hint; adjacency is checked in the main process.
   const sequential =
     event.mode === 'next' &&
+    event.adjacent &&
     compareCFI(collapse(state.currentCFI, false), state.boundaryCFI) <= 0;
   return {
     state: {

@@ -11,6 +11,7 @@ test('sequential reading waits five seconds and only advances', () => {
   const next = advanceBoundary(state, {
     type: 'relocate',
     mode: 'next',
+    adjacent: true,
     cfi: cfi(0, 20),
     now: 100,
   }).state;
@@ -24,7 +25,13 @@ test('sequential reading waits five seconds and only advances', () => {
   ).toBe(cfi(0, 20));
   const reread = advanceBoundary(
     { ...state, boundaryCFI: cfi(1, 50) },
-    { type: 'relocate', mode: 'next', cfi: cfi(0, 20), now: 0 },
+    {
+      type: 'relocate',
+      mode: 'next',
+      adjacent: true,
+      cfi: cfi(0, 20),
+      now: 0,
+    },
   ).state;
   expect(
     advanceBoundary(reread, { type: 'dwell', now: DWELL_MS }).state.boundaryCFI,
@@ -34,6 +41,7 @@ test('jump and subsequent next beyond the boundary never advance it', () => {
   const jump = advanceBoundary(state, {
     type: 'relocate',
     mode: 'jump',
+    adjacent: false,
     cfi: cfi(3, 20),
     now: 0,
   }).state;
@@ -43,6 +51,7 @@ test('jump and subsequent next beyond the boundary never advance it', () => {
   const next = advanceBoundary(jump, {
     type: 'relocate',
     mode: 'next',
+    adjacent: true,
     cfi: cfi(3, 40),
     now: 10,
   }).state;
@@ -54,12 +63,14 @@ test('prev cancels pending dwell; manual movement archives only when rewinding',
   const pending = advanceBoundary(state, {
     type: 'relocate',
     mode: 'next',
+    adjacent: true,
     cfi: cfi(0, 20),
     now: 0,
   }).state;
   const prev = advanceBoundary(pending, {
     type: 'relocate',
     mode: 'prev',
+    adjacent: false,
     cfi: cfi(0, 0),
     now: 100,
   }).state;
@@ -78,6 +89,7 @@ test('leaving the reader cancels pending dwell without losing the current locati
   const next = advanceBoundary(state, {
     type: 'relocate',
     mode: 'next',
+    adjacent: true,
     cfi: cfi(0, 20),
     now: 0,
   }).state;
@@ -87,5 +99,29 @@ test('leaving the reader cancels pending dwell without losing the current locati
   expect(
     advanceBoundary(paused, { type: 'dwell', now: DWELL_MS * 2 }).state
       .boundaryCFI,
+  ).toBe(state.boundaryCFI);
+});
+test('a next that skips text is treated as a jump and never advances', () => {
+  // A stale "next" hint can arrive with a link jump far ahead of the boundary.
+  const skipped = advanceBoundary(state, {
+    type: 'relocate',
+    mode: 'next',
+    adjacent: false,
+    cfi: cfi(3, 20),
+    now: 0,
+  }).state;
+  expect(skipped.pending).toBeUndefined();
+  expect(
+    advanceBoundary(skipped, { type: 'dwell', now: 99999 }).state.boundaryCFI,
+  ).toBe(state.boundaryCFI);
+  const after = advanceBoundary(skipped, {
+    type: 'relocate',
+    mode: 'next',
+    adjacent: true,
+    cfi: cfi(3, 40),
+    now: 10,
+  }).state;
+  expect(
+    advanceBoundary(after, { type: 'dwell', now: 99999 }).state.boundaryCFI,
   ).toBe(state.boundaryCFI);
 });

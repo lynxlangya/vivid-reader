@@ -107,11 +107,13 @@ export function parseEpub(bytes: Uint8Array): ParsedBook {
     chapters,
   };
 }
+export function bodyCFI(chapter: Chapter): string {
+  return CFI.joinIndir(chapter.baseCFI, `epubcfi(${chapter.bodyPath})`);
+}
 export function cfiAt(chapter: Chapter, offset: number): string {
   if (!Number.isInteger(offset) || offset < 0 || offset > chapter.text.length)
     throw new Error('Offset outside chapter');
-  if (!chapter.runs.length)
-    return CFI.joinIndir(chapter.baseCFI, `epubcfi(${chapter.bodyPath})`);
+  if (!chapter.runs.length) return bodyCFI(chapter);
   const run =
     chapter.runs.find((x) => offset >= x.start && offset < x.end) ??
     (offset === chapter.text.length ? chapter.runs.at(-1) : undefined);

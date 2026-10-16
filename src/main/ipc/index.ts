@@ -205,6 +205,7 @@ export function registerIPC() {
       type: 'relocate',
       cfi,
       mode: 'jump',
+      adjacent: false,
       now: Date.now(),
     }).state;
     persist();
@@ -217,6 +218,7 @@ export function registerIPC() {
       type: 'relocate',
       cfi,
       mode,
+      adjacent: mode === 'next' && gateway().follows(boundary!.currentCFI, cfi),
       now: Date.now(),
     }).state;
     persist();

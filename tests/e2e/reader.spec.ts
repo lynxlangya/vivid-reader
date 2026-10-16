@@ -8,10 +8,13 @@ import {
   type Page,
 } from '@playwright/test';
 import { mkdtemp, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createServer } from 'vite';
 import { tmpdir } from 'node:os';
 import { parseEpub, sampleOffsets, cfiAt } from '../../src/main/content/epub';
 import type { FoliateView } from '../../src/renderer/reader/engine';
+import type { Repository } from '../../src/main/db/repository';
+import { ContentGateway } from '../../src/main/content/gateway';
 const launch = launchIsolated;
 async function importFile(app: ElectronApplication, page: Page, path: string) {
   await app.evaluate(({ dialog }, file) => {
@@ -214,5 +217,82 @@ test('launching from root imports an image-only cover, preserves CFI mapping, an
       .not.toBe(cfiAt(parsed.chapters[1], 0));
   } finally {
     await app.close();
+  }
+});
+
+async function pageGateway(file: string) {
+  const server = await createServer({
+    configFile: false,
+    server: { middlewareMode: true },
+  });
+  try {
+    const { openRepository } = (await server.ssrLoadModule(
+      resolve('src/main/db/repository.ts'),
+    )) as { openRepository: (path: string) => Repository };
+    const parsed = parseEpub(await readFile(file)),
+      repo = openRepository(':memory:');
+    repo.putBook({ id: 'pages', title: '', author: '', path: file });
+    parsed.chapters.forEach((chapter) => repo.putChapter('pages', chapter));
+    return { repo, gateway: new ContentGateway(repo, 'pages') };
+  } finally {
+    await server.close();
+  }
+}
+test('every real page turn onto text is adjacent, and a stale next jump never advances the boundary', async () => {
+  for (const options of [{}, { imageOnlyCover: true }]) {
+    const data = await mkdtemp(join(tmpdir(), 'vivid-reader-pages-'));
+    const file = await buildEpub(options);
+    const parsed = parseEpub(await readFile(file));
+    const app = await launch(data);
+    const { repo, gateway } = await pageGateway(file);
+    try {
+      const page = await app.firstWindow();
+      await importFile(app, page, file);
+      const initial = (await page.evaluate(() => window.vivid.readerState()))!;
+      await page.evaluate(
+        (cfi) => window.vivid.relocate(cfi, 'next'),
+        cfiAt(parsed.chapters.at(-2)!, 0),
+      );
+      await page.waitForTimeout(5200);
+      expect(
+        (await page.evaluate(() => window.vivid.readerState()))!.boundaryCFI,
+      ).toBe(initial.boundaryCFI);
+      const pager = page.locator('.pager');
+      const pages = [(await pager.getAttribute('data-cfi'))!];
+      // foliate may spend one press on a trailing blank column, so allow stalls.
+      for (let turn = 0, stalls = 0; turn < 200 && stalls < 3; turn++) {
+        await page.getByRole('button', { name: '下一页', exact: true }).click();
+        try {
+          await expect(pager).not.toHaveAttribute('data-cfi', pages.at(-1)!, {
+            timeout: 1500,
+          });
+          pages.push((await pager.getAttribute('data-cfi'))!);
+          stalls = 0;
+        } catch {
+          stalls++;
+        }
+      }
+      const chapter = (cfi: string) => gateway.position(cfi).chapter;
+      // A page without visible text reports only its chapter body.
+      const blank = (cfi: string) => !cfi.includes(',');
+      const turns = pages.slice(1).map((cfi, index) => ({
+        from: pages[index],
+        to: cfi,
+        adjacent: gateway.follows(pages[index], cfi),
+        crossChapter: chapter(cfi) !== chapter(pages[index]),
+      }));
+      expect(chapter(pages.at(-1)!)).toBe(parsed.chapters.length - 1);
+      expect(turns.some((turn) => turn.crossChapter)).toBe(true);
+      expect(turns.some((turn) => !turn.crossChapter)).toBe(true);
+      expect(turns.some((turn) => blank(turn.from) && turn.adjacent)).toBe(
+        true,
+      );
+      expect(turns.filter((turn) => !blank(turn.to) && !turn.adjacent)).toEqual(
+        [],
+      );
+    } finally {
+      repo.close();
+      await app.close();
+    }
   }
 });

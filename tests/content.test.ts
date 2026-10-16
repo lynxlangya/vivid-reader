@@ -1,6 +1,8 @@
 import { test, expect } from 'vitest';
 import { contentFixture } from './fixtures/content';
-import { cfiAt } from '../src/main/content/epub';
+import { bodyCFI, cfiAt } from '../src/main/content/epub';
+import { compareCFI } from '../src/shared/cfi';
+import { collapse } from '../src/renderer/vendor/foliate-js/epubcfi.js';
 import { locateMentions, sparseMarks } from '../src/main/pipeline/mentions';
 test('all auxiliary outputs omit future sentinels, entities, extraction notes, and unread statistics', async () => {
   const { repo, gateway, chapters } = await contentFixture();
@@ -119,6 +121,45 @@ test('cards and actual lookup tools never expose whole-book original-name guesse
       },
     });
     expect(gateway.card(mark.id)?.original).toBe('Berlin');
+  } finally {
+    repo.close();
+  }
+});
+test('page adjacency allows whitespace and overlap but rejects skipped text', async () => {
+  const { repo, gateway, chapters } = await contentFixture();
+  // Build a page range CFI under the chapter body, as foliate reports pages.
+  const page = (chapter: number, from: number, to: number) => {
+    const split = (offset: number) =>
+      /^epubcfi\((.+!\/\d+)(.+)\)$/.exec(cfiAt(chapters[chapter], offset))!;
+    const [, parent, start] = split(from);
+    return `epubcfi(${parent},${start},${split(to)[2]})`;
+  };
+  try {
+    const text = chapters[1].text,
+      space = text.indexOf(' 空格');
+    expect(space).toBeGreaterThan(20);
+    expect(
+      compareCFI(collapse(page(1, 3, 20), true), cfiAt(chapters[1], 20)),
+    ).toBe(0);
+    expect(gateway.follows(page(1, 0, 20), page(1, 20, 40))).toBe(true);
+    expect(
+      gateway.follows(page(1, 0, space), page(1, space + 1, space + 5)),
+    ).toBe(true);
+    expect(gateway.follows(page(1, 0, 20), page(1, 17, 40))).toBe(true);
+    expect(gateway.follows(page(1, 0, 20), page(1, 25, 40))).toBe(false);
+    expect(gateway.follows(page(1, 10, 20), page(1, 5, 30))).toBe(false);
+    const last = chapters[1].text.length;
+    expect(gateway.follows(page(1, 20, last), page(2, 0, 20))).toBe(true);
+    expect(gateway.follows(page(1, 20, last - 2), page(2, 0, 20))).toBe(false);
+    expect(gateway.follows(page(1, 20, last), page(3, 0, 20))).toBe(false);
+    expect(gateway.follows(page(1, 20, last), 'epubcfi(bad)')).toBe(false);
+    // A page with no visible text reports the bare chapter body.
+    const blank = bodyCFI(chapters[1]);
+    expect(gateway.follows(page(1, 20, last), blank)).toBe(false);
+    expect(gateway.follows(blank, page(2, 0, 20))).toBe(true);
+    expect(gateway.follows(blank, page(1, 30, 60))).toBe(true);
+    expect(gateway.follows(blank, page(3, 0, 20))).toBe(false);
+    expect(gateway.follows(blank, page(0, 0, 20))).toBe(false);
   } finally {
     repo.close();
   }

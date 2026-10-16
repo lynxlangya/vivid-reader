@@ -11,7 +11,7 @@ import type {
   TextSlice,
 } from '../../shared/reading';
 import type { Repository } from '../db/repository';
-import { cfiAt } from './epub';
+import { bodyCFI, cfiAt } from './epub';
 import { sparseMarks } from '../pipeline/mentions';
 interface Point {
   chapter: number;
@@ -117,6 +117,41 @@ export class ContentGateway {
             ]
           : [];
       });
+  }
+  // foliate reports the bare body when a page shows no text, such as a
+  // trailing blank column or a lone image; treat it as spanning its chapter.
+  private span(page: string): [Point, Point] {
+    const start = this.position(page),
+      chapter = this.chapters()[start.chapter];
+    if (page.includes(',') || compareCFI(page, bodyCFI(chapter)) !== 0)
+      return [start, this.position(page, true)];
+    const end = chapter.text.length;
+    return [
+      { chapter: chapter.index, offset: 0, cfi: cfiAt(chapter, 0) },
+      { chapter: chapter.index, offset: end, cfi: cfiAt(chapter, end) },
+    ];
+  }
+  // A page follows another only if no visible text is skipped between them.
+  follows(fromPage: string, toPage: string) {
+    try {
+      const [from, end] = this.span(fromPage),
+        [start] = this.span(toPage);
+      if (compareCFI(start.cfi, from.cfi) < 0) return false;
+      if (compareCFI(start.cfi, end.cfi) <= 0) return true;
+      return this.chapters()
+        .filter((c) => c.index >= end.chapter && c.index <= start.chapter)
+        .every(
+          (c) =>
+            !/\S/.test(
+              c.text.slice(
+                c.index === end.chapter ? end.offset : 0,
+                c.index === start.chapter ? start.offset : c.text.length,
+              ),
+            ),
+        );
+    } catch {
+      return false;
+    }
   }
   selectionAllowed(start: string, end: string) {
     return (

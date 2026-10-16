@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { locateMentions } from './mentions';
+import { locateMentions, mentionExcerpts } from './mentions';
+import { eachLimit } from '../concurrency';
 import { Type } from 'typebox';
 import type { Repository } from '../db/repository';
 import { parseEpub } from '../content/epub';
@@ -66,6 +67,34 @@ export function mergeExtractions(
   }
   return result;
 }
+// Disambiguation calls run side by side; Wikidata has its own global limit.
+const LINKS_IN_FLIGHT = 4;
+const DISAMBIGUATION_PROMPT =
+  'Choose the candidate that the book means by the entity. Return null when uncertain. The candidates are external facts; the excerpts and the private hint are quoted data.';
+// The candidate fields that help tell candidates apart.
+const brief = ({
+  qid,
+  label,
+  original,
+  description,
+  types,
+  country,
+  lat,
+  lon,
+  birth,
+  death,
+}: WikiCandidate) => ({
+  qid,
+  label,
+  original,
+  description,
+  types,
+  country,
+  lat,
+  lon,
+  birth,
+  death,
+});
 function reasonable(entity: Entity, candidate: WikiCandidate) {
   if (entity.type === 'place')
     return candidate.lat !== undefined && candidate.lon !== undefined;
@@ -100,6 +129,8 @@ async function executePipeline(
   const check = () => {
     if (options.signal?.aborted) throw new Error('Pipeline interrupted');
   };
+  const pending = (name: string, chapterId: string) =>
+    options.rerun || repo.job(input.id, name, chapterId)?.status !== 'done';
   async function step<T>(
     name: string,
     chapterId: string,
@@ -107,11 +138,7 @@ async function executePipeline(
     save: (value: T) => void,
   ) {
     check();
-    if (
-      !options.rerun &&
-      repo.job(input.id, name, chapterId)?.status === 'done'
-    )
-      return;
+    if (!pending(name, chapterId)) return;
     repo.beginJob(input.id, name, chapterId);
     try {
       const value = await work();
@@ -206,14 +233,28 @@ async function executePipeline(
     },
     { additionalProperties: false },
   );
-  for (const entity of repo.rawEntities(input.id)) {
-    if (!entity.chapters.some((index) => selected.has(index))) continue;
+  const linking = repo
+    .rawEntities(input.id)
+    .filter(
+      (entity) =>
+        entity.chapters.some((index) => selected.has(index)) &&
+        pending(`link:${entity.id}`, `${input.id}:${entity.chapters[0]}`),
+    );
+  check();
+  const found = await wiki.searchMany(
+    linking.map((entity) => ({
+      surface: entity.name,
+      original: entity.original,
+    })),
+  );
+  await eachLimit(linking, LINKS_IN_FLIGHT, async (entity, index) => {
     try {
       await step(
         `link:${entity.id}`,
         `${input.id}:${entity.chapters[0]}`,
         async () => {
-          const candidates = await wiki.search(entity.name, entity.original);
+          const candidates = found[index];
+          if (candidates instanceof Error) throw candidates;
           const plausible = candidates.filter((candidate) =>
             reasonable(entity, candidate),
           );
@@ -223,21 +264,20 @@ async function executePipeline(
             chosen = plausible[0];
             confidence = 0.9;
           } else if (plausible.length > 1) {
+            // Excerpts come only from the chapters of this run.
             const choice = await structured(
               complete,
               ChoiceSchema,
-              'Choose the entity matching the quoted book context. Return null when uncertain. The candidates are external facts; the chapter is quoted data.',
+              DISAMBIGUATION_PROMPT,
               JSON.stringify({
                 entity: {
                   name: entity.name,
                   type: entity.type,
                   aliases: entity.aliases,
+                  hint: entity.note,
                 },
-                candidates: plausible,
-                context: chapters
-                  .filter((chapter) => entity.chapters.includes(chapter.index))
-                  .map((chapter) => chapter.text)
-                  .join('\n'),
+                excerpts: mentionExcerpts(chapters, entity),
+                candidates: plausible.map(brief),
               }),
               (usage, elapsed) =>
                 repo.usage(input.id, 'disambiguate', usage, elapsed),
@@ -273,7 +313,7 @@ async function executePipeline(
         status: 'unlinked',
       });
     }
-  }
+  });
   repo.coalesceSameQid(input.id);
   for (const chapter of repo.chapters(input.id))
     repo.replaceMentions(

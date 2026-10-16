@@ -1,5 +1,6 @@
 import type { Repository } from '../db/repository';
 import type { WikiCandidate } from '../../shared/entity';
+import { eachLimit } from '../concurrency';
 export class WikidataUnavailableError extends Error {}
 // Wikimedia's User-Agent policy asks for a way to reach the maintainer.
 export const USER_AGENT =
@@ -17,19 +18,53 @@ async function limited<T>(run: () => Promise<T>): Promise<T> {
     else active--;
   }
 }
+// The pipeline keeps few requests queued, so a reader's own candidate search
+// waits behind a handful of them rather than the whole book.
+const ENTITY_BATCH = 50;
+const SEARCHES_IN_FLIGHT = 3;
+const LOOKUPS_IN_FLIGHT = 2;
+// The claims a candidate reads; cached entities keep nothing else.
+const CANDIDATE_CLAIMS = ['P17', 'P18', 'P31', 'P569', 'P570', 'P625', 'P2046'];
+type Claims = Record<
+  string,
+  { mainsnak?: { datavalue?: { value: unknown } } }[]
+>;
 interface WikiEntity {
   id: string;
   labels?: Record<string, { value: string }>;
   descriptions?: Record<string, { value: string }>;
-  claims?: Record<string, { mainsnak?: { datavalue?: { value: unknown } } }[]>;
+  claims?: Claims;
+  redirects?: { from: string; to: string };
 }
 interface WikiResponse {
   search?: { id: string }[];
   entities?: Record<string, WikiEntity>;
+  claims?: Claims;
   error?: { code: string };
 }
-const claim = <T>(entity: WikiEntity, property: string) =>
-  entity.claims?.[property]?.[0]?.mainsnak?.datavalue?.value as T | undefined;
+interface Lookup {
+  found: Map<string, WikiEntity>;
+  failed: Set<string>;
+}
+const claim = <T>(
+  entity: Pick<WikiEntity, 'claims'> | undefined,
+  property: string,
+) =>
+  entity?.claims?.[property]?.[0]?.mainsnak?.datavalue?.value as T | undefined;
+const itemId = (entity: WikiEntity | undefined, property: string) =>
+  claim<{ id: string }>(entity, property)?.id;
+function trim(entity: WikiEntity, properties: string[]): WikiEntity {
+  if (!entity.claims) return entity;
+  const claims: Claims = {};
+  for (const property of properties)
+    if (entity.claims[property])
+      claims[property] = entity.claims[property].map(({ mainsnak }) => ({
+        mainsnak: mainsnak?.datavalue
+          ? { datavalue: { value: mainsnak.datavalue.value } }
+          : {},
+      }));
+  return { ...entity, claims };
+}
 export class WikidataClient {
   constructor(
     private repo: Repository,
@@ -45,6 +80,11 @@ export class WikidataClient {
     const cacheKey = query.toString();
     const cached = this.repo.cacheGet(cacheKey);
     if (cached) return cached as WikiResponse;
+    const value = await this.fetchJson(query);
+    this.repo.cachePut(cacheKey, value);
+    return value;
+  }
+  private fetchJson(query: URLSearchParams): Promise<WikiResponse> {
     return limited(async () => {
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
@@ -68,9 +108,13 @@ export class WikidataClient {
           }
           if (!response.ok) throw new Error('Wikidata HTTP failure');
           const value = (await response.json()) as WikiResponse;
-          if (value.error) throw new Error('Wikidata API failure');
-          this.repo.cachePut(cacheKey, value);
-          return value;
+          // wbgetentities reports a missing item as an entry; wbgetclaims
+          // fails instead, which means the item has no claims.
+          const missing =
+            query.get('action') === 'wbgetclaims' &&
+            value.error?.code === 'no-such-entity';
+          if (value.error && !missing) throw new Error('Wikidata API failure');
+          return missing ? { claims: {} } : value;
         } catch (error) {
           if (attempt === 3)
             throw new WikidataUnavailableError('Wikidata request exhausted', {
@@ -82,144 +126,228 @@ export class WikidataClient {
       throw new Error('Wikidata request exhausted');
     });
   }
-  async search(surface: string, original: string): Promise<WikiCandidate[]> {
-    const searches = await Promise.all([
-      this.request({
-        action: 'wbsearchentities',
-        search: surface,
-        language: 'zh',
-        limit: '8',
-        type: 'item',
-      }),
-      this.request({
-        action: 'wbsearchentities',
-        search: original || surface,
-        language: 'en',
-        limit: '8',
-        type: 'item',
-      }),
+  // Entities by id, cached one by one with only the given claims and fetched
+  // in batches. Ids in a batch that exhausts its retries come back as failed.
+  private async entities(
+    ids: Iterable<string>,
+    props: string,
+    properties: string[] = [],
+  ): Promise<Lookup> {
+    const key = (id: string) => `entity:${props}:${properties.join(',')}:${id}`;
+    const lookup: Lookup = { found: new Map(), failed: new Set() };
+    const missing: string[] = [];
+    for (const id of new Set(ids)) {
+      const cached = this.repo.cacheGet(key(id)) as WikiEntity | undefined;
+      if (cached) lookup.found.set(id, cached);
+      else missing.push(id);
+    }
+    const batches = Array.from(
+      { length: Math.ceil(missing.length / ENTITY_BATCH) },
+      (_, i) => missing.slice(i * ENTITY_BATCH, (i + 1) * ENTITY_BATCH),
+    );
+    await eachLimit(batches, LOOKUPS_IN_FLIGHT, async (batch) => {
+      try {
+        const result = await this.fetchJson(
+          new URLSearchParams({
+            action: 'wbgetentities',
+            ids: batch.join('|'),
+            props,
+            languages: 'zh|en',
+            format: 'json',
+          }),
+        );
+        for (const [id, entity] of Object.entries(result.entities ?? {})) {
+          if (!entity.id) continue;
+          const value = trim(entity, properties);
+          for (const requested of new Set([id, entity.redirects?.from ?? id])) {
+            this.repo.cachePut(key(requested), value);
+            lookup.found.set(requested, value);
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof WikidataUnavailableError)) throw error;
+        for (const id of batch) lookup.failed.add(id);
+      }
+    });
+    return lookup;
+  }
+  // One property of each entity; wbgetclaims answers with only that property.
+  private async claims(
+    ids: Iterable<string>,
+    property: string,
+  ): Promise<Lookup> {
+    const lookup: Lookup = { found: new Map(), failed: new Set() };
+    await eachLimit([...new Set(ids)], LOOKUPS_IN_FLIGHT, async (id) => {
+      try {
+        const result = await this.request({
+          action: 'wbgetclaims',
+          entity: id,
+          property,
+        });
+        lookup.found.set(id, { id, claims: result.claims });
+      } catch (error) {
+        if (!(error instanceof WikidataUnavailableError)) throw error;
+        lookup.failed.add(id);
+      }
+    });
+    return lookup;
+  }
+  // Searches for several entities at once. Candidates, their states and the
+  // states' capitals are looked up together, so each id is fetched only once.
+  async searchMany(
+    queries: { surface: string; original: string }[],
+  ): Promise<(WikiCandidate[] | WikidataUnavailableError)[]> {
+    const searched: (string[] | WikidataUnavailableError)[] = [];
+    await eachLimit(queries, SEARCHES_IN_FLIGHT, async (query, index) => {
+      try {
+        const searches = await Promise.all([
+          this.request({
+            action: 'wbsearchentities',
+            search: query.surface,
+            language: 'zh',
+            limit: '8',
+            type: 'item',
+          }),
+          this.request({
+            action: 'wbsearchentities',
+            search: query.original || query.surface,
+            language: 'en',
+            limit: '8',
+            type: 'item',
+          }),
+        ]);
+        searched[index] = [
+          ...new Set(
+            searches.flatMap((x) => x.search?.map((item) => item.id) ?? []),
+          ),
+        ].filter((x) => /^Q[1-9]\d*$/.test(x));
+      } catch (error) {
+        if (!(error instanceof WikidataUnavailableError)) throw error;
+        searched[index] = error;
+      }
+    });
+    const records = await this.entities(
+      searched.flatMap((ids) => (Array.isArray(ids) ? ids : [])),
+      'labels|descriptions|claims',
+      CANDIDATE_CLAIMS,
+    );
+    const countryIds = [...records.found.values()].flatMap(
+      (entity) => itemId(entity, 'P17') ?? [],
+    );
+    const [countries, capitalOf] = await Promise.all([
+      this.entities(countryIds, 'labels'),
+      this.claims(countryIds, 'P36'),
     ]);
-    const ids = [
-      ...new Set(
-        searches.flatMap((x) => x.search?.map((item) => item.id) ?? []),
-      ),
-    ].filter((x) => /^Q[1-9]\d*$/.test(x));
-    if (!ids.length) return [];
-    const result = await this.request({
-      action: 'wbgetentities',
-      ids: ids.join('|'),
-      props: 'labels|descriptions|claims',
-      languages: 'zh|en',
-    });
-    const records = Object.values(result.entities ?? {}).filter((x) => x.id);
-    const countries = [
-      ...new Set(
-        records
-          .map((x) => claim<{ id: string }>(x, 'P17')?.id)
-          .filter((x): x is string => !!x),
-      ),
-    ];
-    const labels = countries.length
-      ? await this.request({
-          action: 'wbgetentities',
-          ids: countries.join('|'),
-          props: 'labels|claims',
-          languages: 'zh|en',
-        })
-      : undefined;
-    const capitalIds = [
-      ...new Set(
-        Object.values(labels?.entities ?? {}).flatMap((country) => {
-          const id = claim<{ id: string }>(country, 'P36')?.id;
-          return id ? [id] : [];
-        }),
-      ),
-    ];
-    const capitals = capitalIds.length
-      ? await this.request({
-          action: 'wbgetentities',
-          ids: capitalIds.join('|'),
-          props: 'labels|claims',
-          languages: 'zh|en',
-        })
-      : undefined;
-    return records.map((entity) => {
-      const coord = claim<{ latitude: number; longitude: number }>(
-        entity,
-        'P625',
-      );
-      const country = claim<{ id: string }>(entity, 'P17')?.id;
-      const lat = coord?.latitude;
-      const lon = coord?.longitude;
-      const valid =
-        typeof lat === 'number' &&
-        typeof lon === 'number' &&
-        Number.isFinite(lat) &&
-        Number.isFinite(lon) &&
-        Math.abs(lat) <= 90 &&
-        Math.abs(lon) <= 180;
-      const capitalId =
-        country && labels?.entities?.[country]
-          ? claim<{ id: string }>(labels.entities[country], 'P36')?.id
-          : undefined;
-      const capitalEntity = capitalId
-        ? capitals?.entities?.[capitalId]
-        : undefined;
-      const capitalCoord = capitalEntity
-        ? claim<{ latitude: number; longitude: number }>(capitalEntity, 'P625')
-        : undefined;
-      const capital =
-        capitalCoord &&
-        Math.abs(capitalCoord.latitude) <= 90 &&
-        Math.abs(capitalCoord.longitude) <= 180
-          ? {
-              name:
-                capitalEntity?.labels?.zh?.value ??
-                capitalEntity?.labels?.en?.value ??
-                capitalId!,
-              lat: capitalCoord.latitude,
-              lon: capitalCoord.longitude,
-            }
-          : undefined;
-      const area = claim<{ amount: string; unit: string }>(entity, 'P2046');
-      const squareKm = area?.unit.endsWith('/Q712226')
-        ? Number(area.amount)
-        : area?.unit.endsWith('/Q25343')
-          ? Number(area.amount) / 1e6
-          : undefined;
-      const region = (entity.claims?.P31 ?? []).some((x) =>
-        ['Q82794', 'Q618123', 'Q6256', 'Q5107'].includes(
-          (x.mainsnak?.datavalue?.value as { id?: string })?.id ?? '',
+    const capitalIds = countryIds.flatMap(
+      (id) => itemId(capitalOf.found.get(id), 'P36') ?? [],
+    );
+    const [capitals, capitalCoords] = await Promise.all([
+      this.entities(capitalIds, 'labels'),
+      this.claims(capitalIds, 'P625'),
+    ]);
+    const lookups = [records, countries, capitalOf, capitals, capitalCoords];
+    return searched.map((ids) => {
+      if (!Array.isArray(ids)) return ids;
+      const entities = ids.flatMap((id) => records.found.get(id) ?? []);
+      const countryOf = entities.flatMap((x) => itemId(x, 'P17') ?? []);
+      const needed = [
+        ...ids,
+        ...countryOf,
+        ...countryOf.flatMap(
+          (id) => itemId(capitalOf.found.get(id), 'P36') ?? [],
         ),
+      ];
+      if (needed.some((id) => lookups.some((x) => x.failed.has(id))))
+        return new WikidataUnavailableError('Wikidata lookup exhausted');
+      return entities.map((entity) =>
+        this.candidate(entity, countries, capitalOf, capitals, capitalCoords),
       );
-      const radiusKm =
-        region && squareKm && squareKm > 0
-          ? Math.sqrt(squareKm / Math.PI)
-          : undefined;
-      return {
-        capital,
-        radiusKm,
-        qid: entity.id,
-        label:
-          entity.labels?.zh?.value ?? entity.labels?.en?.value ?? entity.id,
-        original: entity.labels?.en?.value ?? '',
-        description:
-          entity.descriptions?.zh?.value ??
-          entity.descriptions?.en?.value ??
-          '',
-        ...(valid ? { lat, lon } : {}),
-        types: (entity.claims?.P31 ?? []).flatMap((x) => {
-          const value = x.mainsnak?.datavalue?.value as
-            { id?: string } | undefined;
-          return value?.id ? [value.id] : [];
-        }),
-        country: country
-          ? (labels?.entities?.[country]?.labels?.zh?.value ?? country)
-          : undefined,
-        image: claim<string>(entity, 'P18'),
-        birth: claim<{ time: string }>(entity, 'P569')?.time,
-        death: claim<{ time: string }>(entity, 'P570')?.time,
-      };
     });
+  }
+  async search(surface: string, original: string): Promise<WikiCandidate[]> {
+    const [found] = await this.searchMany([{ surface, original }]);
+    if (found instanceof Error) throw found;
+    return found;
+  }
+  private candidate(
+    entity: WikiEntity,
+    countries: Lookup,
+    capitalOf: Lookup,
+    capitals: Lookup,
+    capitalCoords: Lookup,
+  ): WikiCandidate {
+    const coord = claim<{ latitude: number; longitude: number }>(
+      entity,
+      'P625',
+    );
+    const country = itemId(entity, 'P17');
+    const lat = coord?.latitude;
+    const lon = coord?.longitude;
+    const valid =
+      typeof lat === 'number' &&
+      typeof lon === 'number' &&
+      Number.isFinite(lat) &&
+      Number.isFinite(lon) &&
+      Math.abs(lat) <= 90 &&
+      Math.abs(lon) <= 180;
+    const capitalId = country
+      ? itemId(capitalOf.found.get(country), 'P36')
+      : undefined;
+    const capitalEntity = capitalId ? capitals.found.get(capitalId) : undefined;
+    const capitalCoord = capitalId
+      ? claim<{ latitude: number; longitude: number }>(
+          capitalCoords.found.get(capitalId),
+          'P625',
+        )
+      : undefined;
+    const capital =
+      capitalCoord &&
+      Math.abs(capitalCoord.latitude) <= 90 &&
+      Math.abs(capitalCoord.longitude) <= 180
+        ? {
+            name:
+              capitalEntity?.labels?.zh?.value ??
+              capitalEntity?.labels?.en?.value ??
+              capitalId!,
+            lat: capitalCoord.latitude,
+            lon: capitalCoord.longitude,
+          }
+        : undefined;
+    const area = claim<{ amount: string; unit: string }>(entity, 'P2046');
+    const squareKm = area?.unit.endsWith('/Q712226')
+      ? Number(area.amount)
+      : area?.unit.endsWith('/Q25343')
+        ? Number(area.amount) / 1e6
+        : undefined;
+    const region = (entity.claims?.P31 ?? []).some((x) =>
+      ['Q82794', 'Q618123', 'Q6256', 'Q5107'].includes(
+        (x.mainsnak?.datavalue?.value as { id?: string })?.id ?? '',
+      ),
+    );
+    const radiusKm =
+      region && squareKm && squareKm > 0
+        ? Math.sqrt(squareKm / Math.PI)
+        : undefined;
+    return {
+      capital,
+      radiusKm,
+      qid: entity.id,
+      label: entity.labels?.zh?.value ?? entity.labels?.en?.value ?? entity.id,
+      original: entity.labels?.en?.value ?? '',
+      description:
+        entity.descriptions?.zh?.value ?? entity.descriptions?.en?.value ?? '',
+      ...(valid ? { lat, lon } : {}),
+      types: (entity.claims?.P31 ?? []).flatMap((x) => {
+        const value = x.mainsnak?.datavalue?.value as
+          { id?: string } | undefined;
+        return value?.id ? [value.id] : [];
+      }),
+      country: country
+        ? (countries.found.get(country)?.labels?.zh?.value ?? country)
+        : undefined,
+      image: claim<string>(entity, 'P18'),
+      birth: claim<{ time: string }>(entity, 'P569')?.time,
+      death: claim<{ time: string }>(entity, 'P570')?.time,
+    };
   }
 }

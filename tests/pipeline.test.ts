@@ -10,11 +10,17 @@ import {
   ExtractionSchema,
 } from '../src/main/pipeline/extract';
 import { parseEpub } from '../src/main/content/epub';
-import { WikidataClient, USER_AGENT } from '../src/main/wikidata/client';
+import {
+  WikidataClient,
+  WikidataUnavailableError,
+  USER_AGENT,
+} from '../src/main/wikidata/client';
+import { mentionExcerpts } from '../src/main/pipeline/mentions';
+import type { Chapter } from '../src/shared/book';
 import { buildEpub } from './fixtures/build-epub';
 import { fakeModel } from './fixtures/faux-model';
 import { wikidataServer } from './fixtures/wikidata-server';
-import { fauxAssistantMessage } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, type Context } from '@earendil-works/pi-ai';
 import entities from './fixtures/wikidata-entities.json';
 import search from './fixtures/wikidata-search.json';
 import search2 from './fixtures/wikidata-search-2.json';
@@ -484,15 +490,15 @@ const linkExtractions = [
     ],
   }),
 ];
-test('links several entities with unchanged results', async () => {
+test('links several entities with unchanged results, batched lookups and bounded excerpts', async () => {
   const repo = openRepository(':memory:');
   const book = await input();
   const server = wikidataServer(linkSearches);
-  const prompts: string[] = [];
+  const contexts: Context[] = [];
   const model = fakeModel([
     ...linkExtractions,
     (context) => {
-      prompts.push(JSON.stringify(context));
+      contexts.push(context);
       return fauxAssistantMessage(
         JSON.stringify({ qid: 'Q64', confidence: 0.95 }),
       );
@@ -507,7 +513,7 @@ test('links several entities with unchanged results', async () => {
       { limit: 2 },
     );
     expect(report.linked).toBe(2);
-    expect(prompts).toHaveLength(1);
+    // Written by the code before batching; the stored results must not move.
     const summary = repo
       .entities(book.id)
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -519,7 +525,138 @@ test('links several entities with unchanged results', async () => {
         candidates: entity.candidates,
       }));
     expect(summary).toMatchSnapshot();
+    // One request per lookup stage instead of one per entity and stage (the
+    // code before batching made 6 searches and 9 entity requests here).
+    expect([
+      server.count('wbsearchentities'),
+      server.count('wbgetentities'),
+      server.count('wbgetclaims'),
+    ]).toEqual([6, 3, 4]);
+    expect(server.maxInFlight()).toBe(2);
+    expect(contexts).toHaveLength(1);
+    const serialized = JSON.stringify(contexts[0]);
+    const prompt = JSON.parse(
+      String(contexts[0].messages.find((x) => x.role === 'user')?.content),
+    ) as {
+      entity: { hint: string };
+      excerpts: string[];
+      candidates: Record<string, unknown>[];
+    };
+    const chapter = repo.chapters(book.id)[0].text;
+    expect(serialized.indexOf('JSON schema')).toBeLessThan(
+      serialized.indexOf(raw.note),
+    );
+    expect(prompt.entity.hint).toBe(raw.note);
+    expect(prompt.excerpts.length).toBeGreaterThan(0);
+    expect(prompt.excerpts.every((x) => chapter.includes(x))).toBe(true);
+    expect(prompt.excerpts.every((x) => x.includes('纸湾'))).toBe(true);
+    expect(prompt.excerpts.join('').length).toBeLessThan(chapter.length);
+    expect(serialized).not.toContain('SENTINEL');
+    expect(prompt.candidates.map((x) => x.qid)).toEqual(['Q64', 'Q84']);
+    expect(prompt.candidates.some((x) => 'capital' in x || 'image' in x)).toBe(
+      false,
+    );
+    // Another book naming the same places needs no requests at all.
+    const requests = server.log.length;
+    await new WikidataClient(repo, server.fetcher, async () => {}).searchMany([
+      { surface: '纸湾', original: 'Berlin' },
+      { surface: '山坡', original: 'London' },
+    ]);
+    expect(server.log.length).toBe(requests);
   } finally {
     repo.close();
   }
+});
+test('batches entity lookups at 50 ids and fails only the searches a failed lookup touches', async () => {
+  const repo = openRepository(':memory:');
+  // Four searches with 16 distinct, unrecorded ids each: 64 ids in all.
+  const searches: Record<string, string[]> = {};
+  for (let i = 0; i < 4; i++)
+    for (const [j, language] of ['zh', 'en'].entries())
+      searches[`${language}:${language}${i}`] = Array.from(
+        { length: 8 },
+        (_, k) => `Q${1000 + i * 16 + j * 8 + k}`,
+      );
+  const server = wikidataServer(searches);
+  try {
+    const found = await new WikidataClient(
+      repo,
+      server.fetcher,
+      async () => {},
+    ).searchMany(
+      Array.from({ length: 4 }, (_, i) => ({
+        surface: `zh${i}`,
+        original: `en${i}`,
+      })),
+    );
+    expect(found.map((x) => (Array.isArray(x) ? x.length : x))).toEqual([
+      16, 16, 16, 16,
+    ]);
+    const batches = server.log.filter((x) => x.action === 'wbgetentities');
+    expect(batches.map((x) => x.ids.length)).toEqual([50, 14]);
+    expect(new Set(batches.flatMap((x) => x.ids)).size).toBe(64);
+    expect(server.count('wbgetclaims')).toBe(0);
+    const isolated = openRepository(':memory:');
+    const shared = wikidataServer(linkSearches);
+    const failing = vi.fn<typeof fetch>(async (value, options) =>
+      new URL(String(value)).searchParams.get('entity') === 'Q2277'
+        ? new Response('', { status: 503 })
+        : shared.fetcher(value, options),
+    );
+    try {
+      const [person, slope] = await new WikidataClient(
+        isolated,
+        failing,
+        async () => {},
+      ).searchMany([
+        { surface: '阿林', original: '' },
+        { surface: '山坡', original: 'London' },
+      ]);
+      expect(Array.isArray(person) && person.map((x) => x.qid)).toEqual([
+        'Q64',
+        'Q404404',
+      ]);
+      expect(slope).toBeInstanceOf(WikidataUnavailableError);
+    } finally {
+      isolated.close();
+    }
+  } finally {
+    repo.close();
+  }
+});
+test('bounds disambiguation excerpts to first mentions in the chapters of the run', () => {
+  const filler = '风从田野吹过，'.repeat(60);
+  const chapter = (index: number, text: string) =>
+    ({ id: `synthetic:${index}`, index, text }) as Chapter;
+  const first = chapter(
+    0,
+    `${filler}旅人走进了纸湾。${filler}纸湾镇的桥。${filler}又回到纸湾。${filler}`,
+  );
+  const second = chapter(1, `${filler}纸湾的码头。${filler}`);
+  const later = chapter(2, 'SENTINEL-LATER-CHAPTER 纸湾');
+  const entity = { name: '纸湾', aliases: ['纸湾镇'], chapters: [0, 1, 2] };
+  const excerpts = mentionExcerpts([first, second], entity);
+  expect(excerpts.join('').length).toBeLessThanOrEqual(1200);
+  expect(excerpts.join('').length).toBeLessThan(first.text.length / 2);
+  expect(excerpts[0]).toContain('旅人走进了纸湾');
+  expect(excerpts.some((x) => x.includes('纸湾镇的桥'))).toBe(true);
+  expect(excerpts.some((x) => x.includes('纸湾的码头'))).toBe(true);
+  expect(excerpts.some((x) => x.includes('又回到纸湾'))).toBe(false);
+  // Every excerpt is quoted text; a chapter outside the run is never read.
+  expect(
+    excerpts.every((x) => first.text.includes(x) || second.text.includes(x)),
+  ).toBe(true);
+  expect(mentionExcerpts([first, second, later], entity).join('')).toContain(
+    'SENTINEL',
+  );
+  // Under a tight budget the first mention of each chapter comes first.
+  const tight = mentionExcerpts([first, second], entity, { budget: 600 });
+  expect(tight).toHaveLength(2);
+  expect(tight[0]).toContain('旅人走进了纸湾');
+  expect(tight[1]).toContain('纸湾的码头');
+  expect(
+    mentionExcerpts([first, second], { ...entity, chapters: [0] }).some((x) =>
+      x.includes('纸湾的码头'),
+    ),
+  ).toBe(false);
 });

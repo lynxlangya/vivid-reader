@@ -46,7 +46,13 @@ export function wikidataServer(
   records: Record<string, FixtureRecord> = wikidataRecords,
 ) {
   const log: { action: string; ids: string[] }[] = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
   const fetcher = vi.fn<typeof fetch>(async (input) => {
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    inFlight--;
     const params = new URL(String(input)).searchParams;
     const action = params.get('action') ?? '';
     if (action === 'wbsearchentities') {
@@ -91,5 +97,5 @@ export function wikidataServer(
   });
   const count = (action: string) =>
     log.filter((entry) => entry.action === action).length;
-  return { fetcher, log, count };
+  return { fetcher, log, count, maxInFlight: () => maxInFlight };
 }

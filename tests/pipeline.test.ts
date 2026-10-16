@@ -150,13 +150,15 @@ test('chunks at paragraph boundaries, retains overlap, and bounds oversized para
   expect(chunks[0].slice(-20)).toBe(chunks[1].slice(0, 20));
 });
 test('uses recorded responses, cache, a named User-Agent, global concurrency <= 2, and bounded backoff', async () => {
+  expect(USER_AGENT).toMatch(/^Vivid\/[\d.]+ \(.*https:\/\/\S+\)$/);
   const repo = openRepository(':memory:');
   let concurrent = 0,
     max = 0;
   let attempts = 0;
   const waits: number[] = [];
-  const fetcher = vi.fn<typeof fetch>(async (_input, options) => {
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
     expect(options?.headers).toMatchObject({ 'User-Agent': USER_AGENT });
+    expect(new URL(String(input)).searchParams.has('maxlag')).toBe(false);
     concurrent++;
     max = Math.max(max, concurrent);
     await new Promise((resolve) => setTimeout(resolve, 2));

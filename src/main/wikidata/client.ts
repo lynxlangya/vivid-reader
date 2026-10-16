@@ -1,8 +1,9 @@
 import type { Repository } from '../db/repository';
 import type { WikiCandidate } from '../../shared/entity';
 export class WikidataUnavailableError extends Error {}
+// Wikimedia's User-Agent policy asks for a way to reach the maintainer.
 export const USER_AGENT =
-  'Vivid/0.1 (EPUB reader; contact: maintainer@example.invalid)';
+  'Vivid/0.1 (EPUB reader; https://github.com/lynxlangya/vivid-reader)';
 let active = 0;
 const waiting: (() => void)[] = [];
 async function limited<T>(run: () => Promise<T>): Promise<T> {
@@ -37,11 +38,9 @@ export class WikidataClient {
       new Promise((resolve) => setTimeout(resolve, ms)),
   ) {}
   async request(params: Record<string, string>): Promise<WikiResponse> {
-    const query = new URLSearchParams({
-      ...params,
-      format: 'json',
-      maxlag: '5',
-    });
+    // No maxlag: it throttles bots that edit, and only ever fails these reads
+    // while the query service lags behind.
+    const query = new URLSearchParams({ ...params, format: 'json' });
     query.sort();
     const cacheKey = query.toString();
     const cached = this.repo.cacheGet(cacheKey);

@@ -1,0 +1,56 @@
+{
+  "source": "https://www.wikidata.org/w/api.php?action=wbsearchentities&search=Berlin&language=en&type=item&limit=2&format=json",
+  "recordedAt": "2026-10-16",
+  "search": [
+    {
+      "id": "Q64",
+      "title": "Q64",
+      "pageid": 190,
+      "concepturi": "http://www.wikidata.org/entity/Q64",
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q64",
+      "display": {
+        "label": {
+          "value": "Berlin",
+          "language": "en"
+        },
+        "description": {
+          "value": "federated state, capital and largest city of Germany",
+          "language": "en"
+        }
+      },
+      "label": "Berlin",
+      "description": "federated state, capital and largest city of Germany",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Berlin"
+      }
+    },
+    {
+      "id": "Q2660845",
+      "title": "Q2660845",
+      "pageid": 2564187,
+      "concepturi": "http://www.wikidata.org/entity/Q2660845",
+      "repository": "wikidata",
+      "url": "//www.wikidata.org/wiki/Q2660845",
+      "display": {
+        "label": {
+          "value": "Berlin",
+          "language": "en"
+        },
+        "description": {
+          "value": "family name",
+          "language": "en"
+        }
+      },
+      "label": "Berlin",
+      "description": "family name",
+      "match": {
+        "type": "label",
+        "language": "en",
+        "text": "Berlin"
+      }
+    }
+  ]
+}

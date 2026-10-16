@@ -12,6 +12,7 @@ export interface Chapter {
   bodyPath: string;
   text: string;
   runs: TextRun[];
+  blocks?: number[];
 }
 export interface ProbeMark {
   name: string;

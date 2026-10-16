@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session } from 'electron';
 import { join } from 'node:path';
 import { registerIPC } from './ipc';
+import { runReportCLI } from './pipeline/report-cli';
 app.setName('Vivid');
 if (process.env.VIVID_USER_DATA)
   app.setPath('userData', process.env.VIVID_USER_DATA);
@@ -32,6 +33,16 @@ app.whenReady().then(async () => {
     (_webContents, _permission, callback) => callback(false),
   );
   session.defaultSession.setPermissionCheckHandler(() => false);
+  if (process.argv.includes('--report-m1')) {
+    try {
+      await runReportCLI(app.getPath('userData'));
+      app.exit(0);
+    } catch {
+      console.error('M1 report failed. No book data was logged.');
+      app.exit(1);
+    }
+    return;
+  }
   registerIPC();
   await createWindow();
   app.on('activate', () => {

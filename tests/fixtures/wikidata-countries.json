@@ -1,0 +1,34 @@
+{
+  "source": "https://www.wikidata.org/w/api.php?action=wbgetentities&ids=Q183%7CQ145&props=labels&languages=zh%7Cen&format=json",
+  "recordedAt": "2026-10-16",
+  "entities": {
+    "Q183": {
+      "type": "item",
+      "id": "Q183",
+      "labels": {
+        "zh": {
+          "language": "zh",
+          "value": "德國"
+        },
+        "en": {
+          "language": "en",
+          "value": "Germany"
+        }
+      }
+    },
+    "Q145": {
+      "type": "item",
+      "id": "Q145",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "United Kingdom"
+        },
+        "zh": {
+          "language": "zh",
+          "value": "英国"
+        }
+      }
+    }
+  }
+}

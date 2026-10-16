@@ -40,6 +40,7 @@ export function parseEpub(bytes: Uint8Array): ParsedBook {
     if (!body) throw new Error('Missing chapter body');
     let text = '';
     const runs: TextRun[] = [];
+    const blocks: number[] = [];
     function walk(node: Node) {
       for (const child of Array.from(node.childNodes)) {
         if (child.nodeType === 3 || child.nodeType === 4) {
@@ -66,8 +67,15 @@ export function parseEpub(bytes: Uint8Array): ParsedBook {
           !['script', 'style', 'noscript'].includes(
             child.nodeName.toLowerCase(),
           )
-        )
+        ) {
           walk(child);
+          if (
+            ['p', 'h1', 'h2', 'h3', 'li', 'dd', 'dt', 'blockquote'].includes(
+              child.nodeName.toLowerCase(),
+            )
+          )
+            blocks.push(text.length);
+        }
       }
     }
     walk(body);
@@ -90,6 +98,7 @@ export function parseEpub(bytes: Uint8Array): ParsedBook {
       bodyPath: unwrap(bodyCFI),
       text,
       runs,
+      blocks,
     };
   });
   return {

@@ -47,6 +47,8 @@
 | `npm run test:e2e` | 构建后启动 Electron 验收 |
 | `npm run check` | 类型、格式、单元测试、仓库卫生 |
 | `npm run audit:repo` | 禁止书籍、数据库、瓦片及密钥日志入库 |
+| `npm run report:m1` | 在 userData/reports 生成统计报告 |
+| `npm run preprocess:m1` | 环境变量齐备时实跑前两章并生成报告，否则跳过 |
 
 包管理器为 npm，依赖锁定精确版本。
 

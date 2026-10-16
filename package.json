@@ -16,7 +16,9 @@
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:e2e": "npm run build && playwright test",
     "audit:repo": "node scripts/audit-repo.mjs",
-    "check": "npm run typecheck && npm run lint && npm test && npm run audit:repo"
+    "check": "npm run typecheck && npm run lint && npm test && npm run audit:repo",
+    "report:m1": "npm run build && electron . --report-m1",
+    "preprocess:m1": "npm run build && electron . --report-m1 --preprocess"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

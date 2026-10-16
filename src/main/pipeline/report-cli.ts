@@ -6,6 +6,9 @@ import { completeText } from '../llm/model';
 import { WikidataClient } from '../wikidata/client';
 import { runPipeline } from './pipeline';
 import { writeM1Report } from './report';
+// M1 samples the first two chapters of body text, not the cover, title or
+// copyright pages that usually open the spine.
+const M1_BODY_CHARS = 1000;
 export async function runReportCLI(userData: string, packaged: boolean) {
   const repo = openRepository(join(userData, 'vivid.sqlite'));
   try {
@@ -25,7 +28,7 @@ export async function runReportCLI(userData: string, packaged: boolean) {
           },
           (context) => completeText(context, apiKey),
           new WikidataClient(repo),
-          { limit: 2 },
+          { limit: 2, minChars: M1_BODY_CHARS },
         );
       } else console.info('未实跑：缺少真实测试书或模型环境变量。');
     }

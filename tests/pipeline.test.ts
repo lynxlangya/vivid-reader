@@ -5,6 +5,7 @@ import { openRepository } from '../src/main/db/repository';
 import { runPipeline, mergeExtractions } from '../src/main/pipeline/pipeline';
 import {
   chunkChapter,
+  groundExtraction,
   structured,
   ExtractionSchema,
 } from '../src/main/pipeline/extract';
@@ -360,7 +361,9 @@ test('publishes completed chapter mentions before all extraction and supports al
     );
     expect(firstReady).toBe(true);
     expect(model.provider.state.callCount).toBe(5);
-    expect(repo.entities(book.id)[0].chapters).toEqual([0, 1, 2, 3, 4]);
+    // The script returns the same entity for every chapter; only chapter 0's
+    // text names it, so the other chapters drop it.
+    expect(repo.entities(book.id)[0].chapters).toEqual([0]);
     const linked = repo.entities(book.id)[0].linked;
     const resumed = fakeModel([]);
     await runPipeline(
@@ -372,6 +375,74 @@ test('publishes completed chapter mentions before all extraction and supports al
     );
     expect(resumed.provider.state.callCount).toBe(0);
     expect(repo.entities(book.id)[0].linked).toEqual(linked);
+  } finally {
+    repo.close();
+  }
+});
+test('keeps only extracted forms that occur in the text', () => {
+  const text = '旅人走进了纸湾。北岸的灯塔亮着。';
+  const grounded = groundExtraction(
+    [
+      { ...raw, aliases_in_text: ['纸湾镇', ' '] },
+      { ...raw, surface: '北岸灯塔', aliases_in_text: ['灯塔', '北岸'] },
+      { ...raw, surface: '雾岛', aliases_in_text: ['雾岛港'] },
+    ],
+    text,
+  );
+  expect(grounded.map((e) => [e.surface, e.aliases_in_text])).toEqual([
+    ['纸湾', []],
+    ['灯塔', ['北岸']],
+  ]);
+  expect(grounded[0].original_name_guess).toBe(raw.original_name_guess);
+});
+test('never stores or links entities the chapter text does not name, and skips chapters without body text', async () => {
+  const repo = openRepository(':memory:');
+  const path = await buildEpub({ imageOnlyCover: true });
+  const bytes = await readFile(path);
+  const book = {
+    path,
+    bytes,
+    id: createHash('sha256').update(bytes).digest('hex'),
+  };
+  // A later chapter's place, offered from outside knowledge while reading chapter 0.
+  const outside = { ...raw, surface: '雾岛', aliases_in_text: [] };
+  // Only in the second text chapter, which sits at spine index 2.
+  const slope = { ...raw, surface: '山坡', original_name_guess: '' };
+  const model = fakeModel([
+    JSON.stringify({ entities: [raw, outside] }),
+    JSON.stringify({ entities: [slope, outside] }),
+  ]);
+  const searches: string[] = [];
+  const fetcher = vi.fn<typeof fetch>(async (input, options) => {
+    const params = new URL(String(input)).searchParams;
+    if (params.get('action') === 'wbsearchentities')
+      searches.push(params.get('search') ?? '');
+    return fetchFixture(input, options);
+  });
+  try {
+    await runPipeline(
+      repo,
+      book,
+      model.complete,
+      new WikidataClient(repo, fetcher, async () => {}),
+      { limit: 2, minChars: 20 },
+    );
+    // The image-only cover is skipped; the two text chapters are extracted.
+    expect(model.provider.state.callCount).toBe(2);
+    expect(repo.chunks(`${book.id}:0`)).toEqual([]);
+    const stored = (index: number) =>
+      repo
+        .chunks(`${book.id}:${index}`)
+        .flat()
+        .map((e) => e.surface);
+    expect([stored(1), stored(2)]).toEqual([['纸湾'], ['山坡']]);
+    expect(searches).toEqual(expect.arrayContaining(['纸湾', '山坡']));
+    expect(searches).not.toContain('雾岛');
+    expect(
+      repo
+        .rawEntities(book.id)
+        .some((e) => e.name === '雾岛' || e.aliases.includes('雾岛')),
+    ).toBe(false);
   } finally {
     repo.close();
   }

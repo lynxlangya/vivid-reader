@@ -11,6 +11,7 @@ import type {
 import { WikidataClient, WikidataUnavailableError } from '../wikidata/client';
 import {
   chunkChapter,
+  groundExtraction,
   structured,
   ExtractionSchema,
   EXTRACTION_PROMPT,
@@ -76,6 +77,8 @@ function reasonable(entity: Entity, candidate: WikiCandidate) {
 }
 export interface PipelineOptions {
   limit?: number;
+  // Chapters with fewer non-space characters are skipped (covers, title pages).
+  minChars?: number;
   rerun?: boolean;
   signal?: AbortSignal;
   afterStep?: (step: string) => void;
@@ -130,7 +133,14 @@ async function executePipeline(
       async () => chapter,
       (value) => repo.putChapter(input.id, value),
     );
-  const chapters = repo.chapters(input.id).slice(0, options.limit ?? 2);
+  const chapters = repo
+    .chapters(input.id)
+    .filter(
+      (chapter) =>
+        chapter.text.replace(/\s/g, '').length >= (options.minChars ?? 1),
+    )
+    .slice(0, options.limit ?? 2);
+  const selected = new Set(chapters.map((chapter) => chapter.index));
   for (const chapter of chapters) {
     const chunks = chunkChapter(chapter);
     for (const [index, text] of chunks.entries())
@@ -145,7 +155,12 @@ async function executePipeline(
             text,
             (usage, elapsed) => repo.usage(input.id, 'extract', usage, elapsed),
           ),
-        (result) => repo.putChunk(chapter.id, index, result.entities),
+        (result) =>
+          repo.putChunk(
+            chapter.id,
+            index,
+            groundExtraction(result.entities, text),
+          ),
       );
     repo.transaction(() => {
       const records = chapters.flatMap((c) =>
@@ -192,8 +207,7 @@ async function executePipeline(
     { additionalProperties: false },
   );
   for (const entity of repo.rawEntities(input.id)) {
-    if (!entity.chapters.some((index) => index < (options.limit ?? 2)))
-      continue;
+    if (!entity.chapters.some((index) => selected.has(index))) continue;
     try {
       await step(
         `link:${entity.id}`,

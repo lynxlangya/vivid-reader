@@ -50,7 +50,7 @@
 | `npm run build:mac` | 本机 Apple Silicon 未签名 dmg，输出 release/，不发布 |
 | `npm run audit:repo` | 禁止书籍、数据库、瓦片及密钥日志入库 |
 | `npm run report:m1` | 在 userData/reports 生成统计报告 |
-| `npm run preprocess:m1` | 环境变量齐备时实跑前两章并生成报告，否则跳过 |
+| `npm run preprocess:m1` | 环境变量齐备时实跑前两个正文章节并生成报告，否则跳过 |
 
 包管理器为 npm，依赖锁定精确版本。
 

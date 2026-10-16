@@ -61,7 +61,7 @@ npm run test:perf   # 合成大书上的主进程热路径耗时
 npm run report:m1   # 本机报告，只输出统计与报告路径
 ```
 
-真实 EPUB 通过 `VIVID_TEST_EPUB` 环境变量提供，必须放在仓库外。真实模型 Key 通过 `DEEPSEEK_API_KEY` 提供给 live 测试，不写进文件或日志；该环境变量只在开发与测试中生效，打包后的应用只使用设置里保存到系统钥匙串的 Key。E2E 使用合成书和 fauxProvider，报告与测试截图均在仓库外。`preprocess:m1` 仅处理指定测试书的前两章并生成核对报告，人工准确率不能由自动测试代替。
+真实 EPUB 通过 `VIVID_TEST_EPUB` 环境变量提供，必须放在仓库外。真实模型 Key 通过 `DEEPSEEK_API_KEY` 提供给 live 测试，不写进文件或日志；该环境变量只在开发与测试中生效，打包后的应用只使用设置里保存到系统钥匙串的 Key。E2E 使用合成书和 fauxProvider，报告与测试截图均在仓库外。`preprocess:m1` 仅处理指定测试书的前两个正文章节（跳过非空白字符不足 1000 的封面、书名页等）并生成核对报告，人工准确率不能由自动测试代替。
 
 项目入口：[AGENTS.md](AGENTS.md)、[实施方案](docs/IMPLEMENTATION.md)、[决策](docs/DECISIONS.md)、[开发验收日志](docs/dev-log.md)、[贡献指南](CONTRIBUTING.md)。视觉以 [v2 规范](prototype/v2-folio-atlas/DESIGN.md) 为准。
 

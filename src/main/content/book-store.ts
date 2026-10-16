@@ -66,6 +66,12 @@ export class BookStore {
       currentCFI: this.index!.currentCFI,
     };
   }
+  async select(id: string) {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('Invalid book');
+    this.index = { id };
+    await this.persist();
+    return this.open();
+  }
   async restore(): Promise<StoredBook | null> {
     try {
       return await this.open();

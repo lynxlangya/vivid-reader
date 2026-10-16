@@ -328,3 +328,49 @@ test('keeps exhausted network links unlinked and retryable without repeating pai
     repo.close();
   }
 });
+
+test('publishes completed chapter mentions before all extraction and supports all five chapters', async () => {
+  const repo = openRepository(':memory:');
+  const book = await input();
+  const model = fakeModel(Array.from({ length: 5 }, () => extraction));
+  let firstReady = false;
+  try {
+    await runPipeline(
+      repo,
+      book,
+      model.complete,
+      new WikidataClient(repo, fetchFixture, async () => {}),
+      {
+        limit: 5,
+        afterStep: (step) => {
+          if (step === 'ready:0') {
+            firstReady = true;
+            expect(repo.entities(book.id)).toHaveLength(1);
+            expect(repo.mentions(book.id).some((m) => m.chapter === 0)).toBe(
+              true,
+            );
+            expect(repo.mentions(book.id).some((m) => m.chapter > 0)).toBe(
+              false,
+            );
+          }
+        },
+      },
+    );
+    expect(firstReady).toBe(true);
+    expect(model.provider.state.callCount).toBe(5);
+    expect(repo.entities(book.id)[0].chapters).toEqual([0, 1, 2, 3, 4]);
+    const linked = repo.entities(book.id)[0].linked;
+    const resumed = fakeModel([]);
+    await runPipeline(
+      repo,
+      book,
+      resumed.complete,
+      new WikidataClient(repo, fetchFixture, async () => {}),
+      { limit: 5 },
+    );
+    expect(resumed.provider.state.callCount).toBe(0);
+    expect(repo.entities(book.id)[0].linked).toEqual(linked);
+  } finally {
+    repo.close();
+  }
+});

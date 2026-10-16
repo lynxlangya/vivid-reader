@@ -1,3 +1,4 @@
+import { defaultPreferences, type Preferences } from '../../shared/settings';
 import { geoDistance } from 'd3-geo';
 import { collapse } from '../../renderer/vendor/foliate-js/epubcfi.js';
 import { compareCFI, validateCFI } from '../../shared/cfi';
@@ -21,6 +22,7 @@ export class ContentGateway {
   constructor(
     private repo: Repository,
     readonly bookId: string,
+    private preferences: () => Preferences = () => defaultPreferences,
   ) {}
   private chapters() {
     return this.repo.chapters(this.bookId);
@@ -161,7 +163,7 @@ export class ContentGateway {
   marks(
     chapter: number,
     pageCFI?: string,
-    density: 'low' | 'medium' | 'high' = 'medium',
+    density: 'low' | 'medium' | 'high' = this.preferences().density,
   ): ReaderMark[] {
     const mentions = this.readMentions();
     const entities = this.repo.entities(this.bookId);
@@ -178,7 +180,12 @@ export class ContentGateway {
       )
       .flatMap((mention) => {
         const entity = entities.find((x) => x.id === mention.entityId);
-        if (!entity || entity.hidden) return [];
+        if (
+          !entity ||
+          entity.hidden ||
+          !this.preferences().types.includes(entity.type)
+        )
+          return [];
         if (
           start &&
           end &&
@@ -216,12 +223,17 @@ export class ContentGateway {
   context() {
     const boundary = this.boundary();
     const chapters = this.chapters();
+    const current = this.position(this.repo.progress(this.bookId)!.current);
+    const beyond = compareCFI(current.cfi, boundary.cfi) > 0;
     const known = new Set(this.repo.known(this.bookId));
     const visible = this.readMentions();
     return {
       boundaryCFI: boundary.cfi,
       chapter: boundary.chapter,
-      title: chapters[boundary.chapter].title,
+      title: chapters[beyond ? boundary.chapter : current.chapter].title,
+      currentCFI: current.cfi,
+      currentChapter: current.chapter,
+      viewBeyondBoundary: beyond,
       known: visible
         .filter((x) => known.has(x.entityId))
         .map((x) => x.surface)
@@ -333,6 +345,18 @@ export class ContentGateway {
       before: chapter.text.slice(0, mention.start),
       previous,
     };
+  }
+  fractionCFI(fraction: number) {
+    const chapters = this.chapters();
+    let offset = Math.floor(
+      Math.max(0, Math.min(1, fraction)) *
+        chapters.reduce((sum, c) => sum + c.text.length, 0),
+    );
+    for (const chapter of chapters) {
+      if (offset <= chapter.text.length) return cfiAt(chapter, offset);
+      offset -= chapter.text.length;
+    }
+    return cfiAt(chapters.at(-1)!, chapters.at(-1)!.text.length);
   }
   state(pageCFI?: string): ReaderState {
     const progress = this.repo.progress(this.bookId)!;

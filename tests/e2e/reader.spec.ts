@@ -20,6 +20,9 @@ async function importFile(app: ElectronApplication, page: Page, path: string) {
     })) as typeof dialog.showOpenDialog;
   }, path);
   await page.getByRole('button', { name: '导入 EPUB', exact: true }).click();
+  const start = page.getByRole('button', { name: '开始阅读', exact: true });
+  await expect(start).toBeVisible();
+  await start.click();
   await expect(page.locator('.reader-host')).toHaveAttribute(
     'aria-busy',
     'false',

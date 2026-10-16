@@ -72,48 +72,7 @@ export function injectMarks(
       ) ?? scoped.find((item) => rectangles(item.range).some(contains));
     if (!target) return null;
     const rect = rectangles(target.range).find(contains)!;
-    const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
-    if (!frame) return null;
-    const column = document
-      .querySelector('.reader-host')!
-      .getBoundingClientRect();
-    const viewportRight =
-      document.querySelector('.companion')?.getBoundingClientRect().left ??
-      window.innerWidth;
-    const lines: Box[] = [];
-    for (const paragraph of doc.querySelectorAll('p,h1,h2,h3,li')) {
-      const content = doc.createRange();
-      content.selectNodeContents(paragraph);
-      for (const r of content.getClientRects()) {
-        const box = {
-          left: column.left,
-          right: column.right,
-          top: r.top + frame.top,
-          bottom: r.bottom + frame.top,
-        };
-        if (box.bottom < 0 || box.top > window.innerHeight) continue;
-        const same = lines.find((x) => Math.abs(x.top - box.top) < 3);
-        if (same) same.bottom = Math.max(same.bottom, box.bottom);
-        else lines.push(box);
-      }
-    }
-    return {
-      mark: target.mark,
-      column: {
-        left: column.left,
-        right: column.right,
-        top: column.top,
-        bottom: column.bottom,
-      },
-      viewportRight,
-      lines,
-      rect: {
-        left: rect.left + frame.left,
-        right: rect.right + frame.left,
-        top: rect.top + frame.top,
-        bottom: rect.bottom + frame.top,
-      },
-    };
+    return geometry(doc, target.mark, rect);
   };
   const move = (event: MouseEvent) => {
     const hit = hitTest(event);
@@ -146,4 +105,66 @@ export function injectMarks(
       for (const prefix of ['vivid-', 'vivid-seen-', 'vivid-hover-'])
         frameWindow.CSS.highlights.delete(prefix + type);
   };
+}
+
+function geometry(
+  doc: Document,
+  mark: ProbeMark,
+  rect: DOMRect,
+): MarkHit | null {
+  const frame = doc.defaultView?.frameElement?.getBoundingClientRect();
+  if (!frame) return null;
+  const column = document
+    .querySelector('.reader-host')!
+    .getBoundingClientRect();
+  const viewportRight =
+    document.querySelector('.companion')?.getBoundingClientRect().left ??
+    window.innerWidth;
+  const lines: Box[] = [];
+  for (const paragraph of doc.querySelectorAll('p,h1,h2,h3,li')) {
+    const content = doc.createRange();
+    content.selectNodeContents(paragraph);
+    for (const r of content.getClientRects()) {
+      const box = {
+        left: column.left,
+        right: column.right,
+        top: r.top + frame.top,
+        bottom: r.bottom + frame.top,
+      };
+      if (box.bottom < 0 || box.top > window.innerHeight) continue;
+      const same = lines.find((x) => Math.abs(x.top - box.top) < 3);
+      if (same) same.bottom = Math.max(same.bottom, box.bottom);
+      else lines.push(box);
+    }
+  }
+  return {
+    mark,
+    column: {
+      left: column.left,
+      right: column.right,
+      top: column.top,
+      bottom: column.bottom,
+    },
+    viewportRight,
+    lines,
+    rect: {
+      left: rect.left + frame.left,
+      right: rect.right + frame.left,
+      top: rect.top + frame.top,
+      bottom: rect.bottom + frame.top,
+    },
+  };
+}
+export function markGeometry(
+  view: FoliateView,
+  mark: ProbeMark,
+): MarkHit | null {
+  const content = view.renderer
+    .getContents()
+    .find((x) => x.index === mark.chapter);
+  if (!content) return null;
+  const range = view.resolveCFI(mark.startCFI).anchor(content.doc),
+    end = view.resolveCFI(mark.endCFI).anchor(content.doc);
+  range.setEnd(end.startContainer, end.startOffset);
+  return geometry(content.doc, mark, range.getBoundingClientRect());
 }

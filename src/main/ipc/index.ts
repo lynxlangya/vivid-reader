@@ -1,3 +1,11 @@
+import { Type } from 'typebox';
+import {
+  SettingsSchema,
+  type Preferences,
+  type LibraryBook,
+} from '../../shared/settings';
+import { PreferenceStore } from '../content/preferences';
+import { originalCover } from '../content/cover';
 import { ipcMain, dialog, app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -41,6 +49,7 @@ import { testCompanionBackend } from '../agent/testing';
 export function registerIPC() {
   const dir = app.getPath('userData');
   const books = new BookStore(dir);
+  const preferences = new PreferenceStore(dir);
   const keys = new KeyStore(dir);
   const repo = openRepository(join(dir, 'vivid.sqlite'));
   const wiki = new WikidataClient(repo);
@@ -53,7 +62,7 @@ export function registerIPC() {
   const candidates = new Map<string, WikiCandidate[]>();
   const gateway = () => {
     if (!current) throw new Error('No current book');
-    return new ContentGateway(repo, current.id);
+    return new ContentGateway(repo, current.id, () => preferences.get());
   };
   const notify = () => {
     if (!current) return;
@@ -94,9 +103,9 @@ export function registerIPC() {
             path: join(dir, 'books', `${book.id}.epub`),
             bytes: await readFile(join(dir, 'books', `${book.id}.epub`)),
           },
-          (context) => completeText(context, apiKey),
+          (context) => completeText(context, apiKey, preferences.get().model),
           wiki,
-          { limit: 2 },
+          { limit: Number.MAX_SAFE_INTEGER, afterStep: () => notify() },
         );
         notify();
         states.set(
@@ -139,13 +148,13 @@ export function registerIPC() {
     gloss = new GlossService(repo, content, async (context) => {
       const key = (await keys.get()) ?? process.env.DEEPSEEK_API_KEY;
       if (!key) throw new Error('No model key');
-      return completeText(context, key);
+      return completeText(context, key, preferences.get().model);
     });
     const backend =
       !app.isPackaged && process.env.VIVID_TEST_AGENT === 'faux'
         ? testCompanionBackend()
         : {
-            model: getTextModel(),
+            model: getTextModel(preferences.get().model),
             streamFn: models.streamSimple.bind(models),
             getApiKey: async () =>
               (await keys.get()) ?? process.env.DEEPSEEK_API_KEY,
@@ -286,6 +295,88 @@ export function registerIPC() {
     candidates.set(id, found);
     return found;
   });
+  handle('vivid:preferences', EmptySchema, () => preferences.get());
+  handle('vivid:save-preferences', SettingsSchema, (payload) => {
+    const value = payload as Preferences;
+    if (!models.getModels('deepseek').some((x) => x.id === value.model))
+      throw new Error('Unknown model');
+    const changedModel = preferences.get().model !== value.model;
+    preferences.set(value);
+    notify();
+    if (current && changedModel) {
+      companion?.cancel();
+      const backend =
+        !app.isPackaged && process.env.VIVID_TEST_AGENT === 'faux'
+          ? testCompanionBackend()
+          : {
+              model: getTextModel(value.model),
+              streamFn: models.streamSimple.bind(models),
+              getApiKey: async () =>
+                (await keys.get()) ?? process.env.DEEPSEEK_API_KEY,
+            };
+      companion = new CompanionService(repo, gateway(), backend);
+      for (const win of BrowserWindow.getAllWindows())
+        win.webContents.send('vivid:companion', companion.history());
+    }
+  });
+  handle('vivid:models', EmptySchema, () =>
+    models.getModels('deepseek').map((x) => ({ id: x.id, name: x.name })),
+  );
+  handle('vivid:library', EmptySchema, (): LibraryBook[] =>
+    repo.books().map((book) => {
+      const state = repo.progress(String(book.id))
+        ? new ContentGateway(repo, String(book.id)).state()
+        : null;
+      return {
+        id: String(book.id),
+        title: String(book.title),
+        author: String(book.author),
+        boundaryFraction: state?.boundaryFraction ?? 0,
+        currentFraction: state?.currentFraction ?? 0,
+      };
+    }),
+  );
+  handle('vivid:open-book', IdSchema, async (payload) => {
+    const { id } = payload as { id: string };
+    if (!repo.books().some((book) => book.id === id))
+      throw new Error('Unknown book');
+    return activate(await books.select(id));
+  });
+  handle('vivid:cover', IdSchema, async (payload) => {
+    const { id } = payload as { id: string };
+    if (
+      !preferences.get().showOriginalCover ||
+      !repo.books().some((book) => book.id === id)
+    )
+      return null;
+    try {
+      return originalCover(await readFile(join(dir, 'books', id + '.epub')));
+    } catch {
+      return null;
+    }
+  });
+  handle(
+    'vivid:boundary-fraction',
+    Type.Object(
+      { value: Type.Number({ minimum: 0, maximum: 1 }) },
+      { additionalProperties: false },
+    ),
+    (payload) => {
+      const cfi = gateway().fractionCFI((payload as { value: number }).value);
+      const result = advanceBoundary(boundary!, { type: 'manual', cfi });
+      boundary = result.state;
+      clearTimeout(timer);
+      if (result.archive) {
+        companion?.cancel();
+        repo.archiveConversations(current!.id);
+        for (const win of BrowserWindow.getAllWindows())
+          win.webContents.send('vivid:companion', companion!.history());
+      }
+      persist();
+      notify();
+      return gateway().state(current!.currentCFI);
+    },
+  );
   handle('vivid:ask', AskSchema, async (payload) => {
     if (!companion) throw new Error('Open a book first');
     await companion.ask(payload as AskRequest, (update) => {

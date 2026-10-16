@@ -51,9 +51,10 @@ export function mergeExtractions(
         importance: raw.importance,
         note: raw.note,
         chapters: [],
-        candidates: [],
-        confidence: 0,
-        status: 'pending',
+        candidates: previous?.candidates ?? [],
+        linked: previous?.linked,
+        confidence: previous?.confidence ?? 0,
+        status: previous?.status ?? 'pending',
         review: previous?.review ?? null,
       };
       result.push(entity);
@@ -146,6 +147,26 @@ async function executePipeline(
           ),
         (result) => repo.putChunk(chapter.id, index, result.entities),
       );
+    repo.transaction(() => {
+      const records = chapters.flatMap((c) =>
+        repo
+          .chunks(c.id)
+          .flat()
+          .map((entity) => ({ chapter: c.index, entity })),
+      );
+      const entities = mergeExtractions(
+        input.id,
+        records,
+        repo.rawEntities(input.id),
+      );
+      entities.forEach((entity) => repo.putEntity(entity));
+      for (const ready of chapters.filter((c) => repo.chunks(c.id).length))
+        repo.replaceMentions(
+          ready.id,
+          locateMentions(ready, repo.entities(input.id)),
+        );
+    });
+    options.afterStep?.(`ready:${chapter.index}`);
   }
   const records = chapters.flatMap((chapter) =>
     repo

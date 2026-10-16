@@ -1,16 +1,17 @@
+import type { Preferences } from '../../shared/settings';
 import type { SelectionRange } from '../../shared/companion';
 import type { Box } from '../glimpse/layout';
 import { useEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../../shared/book';
 import type { ReaderState, Navigation } from '../../shared/reading';
 import { makeView, type FoliateView, type ReadingLocation } from './engine';
-import { injectMarks, type MarkHit } from './marks';
+import { injectMarks, markGeometry, type MarkHit } from './marks';
 interface Props {
   book: OpenBook;
   state: ReaderState | null;
   onState: (state: ReaderState) => void;
   onSelection: (selection: (SelectionRange & { rect: Box }) | null) => void;
-  theme: string;
+  preferences: Preferences;
   jump?: string;
   onHover: (hit: MarkHit | null) => void;
   onClick: (hit: MarkHit) => void;
@@ -22,18 +23,30 @@ export function Reader({
   state,
   onState,
   onSelection,
-  theme,
+  preferences,
   jump,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
   const [toc, setToc] = useState(false);
+  const [markMode, setMarkMode] = useState(false);
+  const markNav = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (markMode)
+      requestAnimationFrame(() =>
+        markNav.current?.querySelector('button')?.focus(),
+      );
+  }, [markMode]);
   const [items, setItems] = useState<{ label: string; href: string }[]>([]);
   const [location, setLocation] = useState<ReadingLocation>();
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [pages, setPages] = useState({ current: 1, total: 1 });
   const mode = useRef<Navigation>('jump');
+  const prefs = useRef(preferences);
+  useEffect(() => {
+    prefs.current = preferences;
+  }, [preferences]);
   const cleanup = useRef(new Map<Document, () => void>());
   const currentMarks = useRef(book.marks);
   const handlers = useRef({ onHover, onClick, onState, onSelection });
@@ -63,9 +76,9 @@ export function Reader({
     if (!view?.renderer) return;
     const root = getComputedStyle(document.documentElement);
     view.renderer.setStyles(
-      `html,body{background:${root.getPropertyValue('--paper')};color:${root.getPropertyValue('--ink')};font-family:${root.getPropertyValue('--voice-book')};font-size:19px;line-height:1.85}body{margin:0}p{text-indent:2em;text-align:justify;margin:0 0 .6em;text-spacing-trim:normal;text-autospace:normal}h1{font-size:32px;line-height:1.35;margin:0 0 36px;font-weight:600}a{color:inherit}`,
+      `html,body{background:${root.getPropertyValue('--paper')};color:${root.getPropertyValue('--ink')};font-family:${root.getPropertyValue('--voice-book')};font-size:${prefs.current.fontSize}px;line-height:${prefs.current.lineHeight}}body{margin:0}p{text-indent:2em;text-align:justify;margin:0 0 .6em;text-spacing-trim:normal;text-autospace:normal}h1{font-size:32px;line-height:1.35;margin:0 0 36px;font-weight:600}a{color:inherit}`,
     );
-  }, [theme]);
+  }, [preferences]);
   useEffect(() => {
     handlers.current = { onHover, onClick, onState, onSelection };
   }, [onHover, onClick, onState, onSelection]);
@@ -76,9 +89,20 @@ export function Reader({
     host.current!.append(view);
     let disposed = false;
     const key = (event: KeyboardEvent) => {
+      if (event.key === 'Alt' && !prefs.current.focus) {
+        event.preventDefault();
+        setMarkMode(true);
+        return;
+      }
+      if (event.key === 'Escape') {
+        setMarkMode(false);
+        return;
+      }
+
       if (
-        event.target instanceof HTMLInputElement ||
-        event.target instanceof HTMLTextAreaElement
+        (event.target as Element)?.closest?.(
+          'input,textarea,select,button,[role=dialog]',
+        )
       )
         return;
       if (['ArrowRight', ' '].includes(event.key)) {
@@ -135,8 +159,10 @@ export function Reader({
       );
     });
     view.addEventListener('relocate', (event) => {
+      if (disposed) return;
       const next = (event as CustomEvent<ReadingLocation>).detail;
       handlers.current.onSelection(null);
+      setMarkMode(false);
       setLocation(next);
       setPages({
         current: Math.max(1, view.renderer.page),
@@ -162,7 +188,7 @@ export function Reader({
         view.renderer.setAttribute('max-inline-size', '680px');
         const root = getComputedStyle(document.documentElement);
         view.renderer.setStyles(
-          `html,body{background:${root.getPropertyValue('--paper')};color:${root.getPropertyValue('--ink')};font-family:${root.getPropertyValue('--voice-book')};font-size:19px;line-height:1.85}body{margin:0}p{text-indent:2em;text-align:justify;margin:0 0 .6em;text-spacing-trim:normal;text-autospace:normal}h1{font-size:32px;line-height:1.35;margin:0 0 36px;font-weight:600}a{color:inherit}`,
+          `html,body{background:${root.getPropertyValue('--paper')};color:${root.getPropertyValue('--ink')};font-family:${root.getPropertyValue('--voice-book')};font-size:${prefs.current.fontSize}px;line-height:${prefs.current.lineHeight}}body{margin:0}p{text-indent:2em;text-align:justify;margin:0 0 .6em;text-spacing-trim:normal;text-autospace:normal}h1{font-size:32px;line-height:1.35;margin:0 0 36px;font-weight:600}a{color:inherit}`,
         );
         setItems(view.book.toc);
         await view.init({ lastLocation: book.currentCFI });
@@ -219,6 +245,47 @@ export function Reader({
             </div>
           ))}
         </aside>
+      )}
+      {markMode && (
+        <nav
+          ref={markNav}
+          className="annotation-nav"
+          aria-label="标注导航"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setMarkMode(false);
+              event.stopPropagation();
+            }
+            if (event.key === 'Tab') {
+              const list = Array.from(
+                markNav.current!.querySelectorAll('button'),
+              );
+              const index = list.indexOf(
+                document.activeElement as HTMLButtonElement,
+              );
+              event.preventDefault();
+              list[
+                (index + (event.shiftKey ? -1 : 1) + list.length) % list.length
+              ]?.focus();
+            }
+          }}
+        >
+          <span>Tab 选择 · ↩ 打开 · Esc 退出</span>
+          {state?.marks.map((mark) => (
+            <button
+              key={mark.id}
+              onClick={() => {
+                const view = viewRef.current;
+                if (!view) return;
+                const hit = markGeometry(view, mark);
+                if (hit) handlers.current.onClick(hit);
+              }}
+            >
+              {mark.name}
+            </button>
+          ))}
+          {!state?.marks.length && <span>本页没有标注</span>}
+        </nav>
       )}
       <aside className="spine">{book.title}</aside>
       <div className="reader-host" aria-busy={!ready} ref={host} />

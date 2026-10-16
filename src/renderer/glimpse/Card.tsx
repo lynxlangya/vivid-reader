@@ -58,6 +58,12 @@ export function Card({
     observer.observe(ref.current);
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    if (!pinned) return;
+    const previous = document.activeElement as HTMLElement;
+    ref.current?.querySelector('button')?.focus();
+    return () => previous?.focus();
+  }, [pinned]);
   const layout = cardLayout(
     hit.rect,
     hit.column,

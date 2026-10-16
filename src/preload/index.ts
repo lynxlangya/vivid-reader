@@ -33,6 +33,15 @@ const api: VividAPI = {
       ipcRenderer.removeListener('vivid:state', receive);
     };
   },
+  preferences: () => ipcRenderer.invoke('vivid:preferences', {}),
+  savePreferences: (value) =>
+    ipcRenderer.invoke('vivid:save-preferences', value),
+  modelCatalog: () => ipcRenderer.invoke('vivid:models', {}),
+  library: () => ipcRenderer.invoke('vivid:library', {}),
+  openBook: (id) => ipcRenderer.invoke('vivid:open-book', { id }),
+  originalCover: (id) => ipcRenderer.invoke('vivid:cover', { id }),
+  setBoundaryFraction: (value) =>
+    ipcRenderer.invoke('vivid:boundary-fraction', { value }),
   ask: (request) => ipcRenderer.invoke('vivid:ask', request),
   conversation: () => ipcRenderer.invoke('vivid:conversation', {}),
   selectionAllowed: (range) => ipcRenderer.invoke('vivid:selection', range),

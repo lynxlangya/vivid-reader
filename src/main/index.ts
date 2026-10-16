@@ -11,7 +11,7 @@ async function createWindow() {
     title: '历历',
     width: 1440,
     height: 900,
-    minWidth: 900,
+    minWidth: 1152,
     minHeight: 650,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#F6F3EC',

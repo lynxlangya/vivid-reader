@@ -45,7 +45,7 @@ M4 可选“大图”才安装：`maplibre-gl` 6.14.0、`pmtiles` 4.5.0、`@prot
 | `eslint-plugin-react-hooks` | 7.1.1 | |
 | `globals` | 17.13.0 | |
 | `prettier` | 3.9.10 | |
-| `electron-builder` | 26.15.3 | 只在 M4 打包时安装 |
+| `electron-builder` | 26.15.3 | G5 已安装；本机 arm64 未签名 dmg，identity=null，不发布 |
 
 ### 1.3 vendored（直接放进仓库的第三方源码）
 
@@ -80,6 +80,7 @@ M4 可选“大图”才安装：`maplibre-gl` 6.14.0、`pmtiles` 4.5.0、`@prot
 | `npm run test:e2e` | 先 build，再用 Playwright `_electron` 跑冒烟测试 |
 | `npm run check` | `typecheck` + `lint` + `test` + `audit:repo`，每一步收尾都要跑 |
 | `npm run audit:repo` | 仓库卫生检查，见 2.4 |
+| `npm run build:mac` | build 后 electron-builder，arm64 未签名 dmg，禁止自动发布 |
 
 G0 完成后，把这张表写进 AGENTS.md 的“常用命令”节，替换掉“待 M0 初始化后补充”。
 
@@ -158,7 +159,7 @@ G0 完成后，把这张表写进 AGENTS.md 的“常用命令”节，替换掉
 - **可缩放的大图**（单击舆图打开）：MapLibre 加 PMTiles，放到 M4，属于可选项。底图用脚本下载到 userData，不进仓库（`.gitignore` 已屏蔽 `*.pmtiles`）。
 - **释义（在本书此处）**：
   - 输入只包含**该提及之前的本章文字**，加上**该提及之前**同一实体历次提及的短句。输入完全由提及的位置决定，与边界无关，所以缓存键 `(实体, 章节)` 在边界变化时仍然有效。
-  - **提及位于边界之后时，不显示释义**，只显示基础层，加一行“读到这里后会生成释义”。
+  - **提及位于边界之后时，不返回实体标注或卡片**，避免基础层名称泄露后文专属实体；读者明确设置已读后再启用（D-41，待 review）。
 - **足迹**（“第三章初见 · 已见 N 次”）：只统计边界之前的提及。
 - **人物卡**：MVP 只做生卒时间轴和基础事实（ROADMAP 已把真实画像列入 v0.2），不显示画像位。
 

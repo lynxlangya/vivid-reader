@@ -4,6 +4,7 @@ import type { ReviewEntity } from './entity';
 import type { PipelineStatus } from './pipeline';
 import type { ReaderState, CardData, Navigation } from './reading';
 import type { WikiCandidate } from './entity';
+import type { Preferences, LibraryBook } from './settings';
 import type { AskRequest, CompanionUpdate, SelectionRange } from './companion';
 export const EmptySchema = Type.Object({}, { additionalProperties: false });
 export const PingSchema = EmptySchema;
@@ -106,6 +107,13 @@ export interface VividAPI {
     qid?: string,
   ): Promise<void>;
   searchCandidates(id: string, query: string): Promise<WikiCandidate[]>;
+  preferences(): Promise<Preferences>;
+  savePreferences(value: Preferences): Promise<void>;
+  modelCatalog(): Promise<{ id: string; name: string }[]>;
+  library(): Promise<LibraryBook[]>;
+  openBook(id: string): Promise<OpenBook | null>;
+  originalCover(id: string): Promise<string | null>;
+  setBoundaryFraction(value: number): Promise<ReaderState>;
   ask(request: AskRequest): Promise<void>;
   conversation(): Promise<CompanionUpdate>;
   selectionAllowed(range: SelectionRange): Promise<boolean>;

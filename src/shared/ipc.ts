@@ -2,6 +2,8 @@ import { Type, type Static } from 'typebox';
 import type { OpenBook } from './book';
 import type { ReviewEntity } from './entity';
 import type { PipelineStatus } from './pipeline';
+import type { ReaderState, CardData, Navigation } from './reading';
+import type { WikiCandidate } from './entity';
 export const EmptySchema = Type.Object({}, { additionalProperties: false });
 export const PingSchema = EmptySchema;
 export const PositionSchema = Type.Object(
@@ -19,6 +21,44 @@ export const ReviewSchema = Type.Object(
   },
   { additionalProperties: false },
 );
+export const RelocateSchema = Type.Object(
+  {
+    cfi: Type.String({ maxLength: 4096 }),
+    mode: Type.Union([
+      Type.Literal('next'),
+      Type.Literal('prev'),
+      Type.Literal('jump'),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export const IdSchema = Type.Object(
+  { id: Type.String({ pattern: '^[a-f0-9]{64}$' }) },
+  { additionalProperties: false },
+);
+export const GlossSchema = Type.Object(
+  { id: Type.String({ pattern: '^[a-f0-9]{64}$' }), retry: Type.Boolean() },
+  { additionalProperties: false },
+);
+export const CorrectSchema = Type.Object(
+  {
+    id: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+    action: Type.Union([
+      Type.Literal('link'),
+      Type.Literal('concept'),
+      Type.Literal('hide'),
+    ]),
+    qid: Type.Optional(Type.String({ pattern: '^Q[1-9][0-9]*$' })),
+  },
+  { additionalProperties: false },
+);
+export const WikiSearchSchema = Type.Object(
+  {
+    id: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+    query: Type.String({ minLength: 1, maxLength: 120 }),
+  },
+  { additionalProperties: false },
+);
 export type PingRequest = Static<typeof PingSchema>;
 export interface VividAPI {
   ping(request: PingRequest): Promise<string>;
@@ -32,4 +72,17 @@ export interface VividAPI {
   preprocess(): Promise<void>;
   reviewEntities(): Promise<ReviewEntity[]>;
   markReview(entityId: string, correct: boolean): Promise<void>;
+  relocate(cfi: string, mode: Navigation): Promise<ReaderState>;
+  readerState(): Promise<ReaderState | null>;
+  setBoundary(cfi: string): Promise<ReaderState>;
+  card(id: string): Promise<CardData | null>;
+  gloss(id: string, retry?: boolean): Promise<CardData | null>;
+  markKnown(id: string): Promise<void>;
+  correct(
+    id: string,
+    action: 'link' | 'concept' | 'hide',
+    qid?: string,
+  ): Promise<void>;
+  searchCandidates(id: string, query: string): Promise<WikiCandidate[]>;
+  onReaderState(listener: (state: ReaderState) => void): () => void;
 }

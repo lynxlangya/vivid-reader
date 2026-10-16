@@ -124,7 +124,23 @@ export class WikidataClient {
       ? await this.request({
           action: 'wbgetentities',
           ids: countries.join('|'),
-          props: 'labels',
+          props: 'labels|claims',
+          languages: 'zh|en',
+        })
+      : undefined;
+    const capitalIds = [
+      ...new Set(
+        Object.values(labels?.entities ?? {}).flatMap((country) => {
+          const id = claim<{ id: string }>(country, 'P36')?.id;
+          return id ? [id] : [];
+        }),
+      ),
+    ];
+    const capitals = capitalIds.length
+      ? await this.request({
+          action: 'wbgetentities',
+          ids: capitalIds.join('|'),
+          props: 'labels|claims',
           languages: 'zh|en',
         })
       : undefined;
@@ -143,7 +159,47 @@ export class WikidataClient {
         Number.isFinite(lon) &&
         Math.abs(lat) <= 90 &&
         Math.abs(lon) <= 180;
+      const capitalId =
+        country && labels?.entities?.[country]
+          ? claim<{ id: string }>(labels.entities[country], 'P36')?.id
+          : undefined;
+      const capitalEntity = capitalId
+        ? capitals?.entities?.[capitalId]
+        : undefined;
+      const capitalCoord = capitalEntity
+        ? claim<{ latitude: number; longitude: number }>(capitalEntity, 'P625')
+        : undefined;
+      const capital =
+        capitalCoord &&
+        Math.abs(capitalCoord.latitude) <= 90 &&
+        Math.abs(capitalCoord.longitude) <= 180
+          ? {
+              name:
+                capitalEntity?.labels?.zh?.value ??
+                capitalEntity?.labels?.en?.value ??
+                capitalId!,
+              lat: capitalCoord.latitude,
+              lon: capitalCoord.longitude,
+            }
+          : undefined;
+      const area = claim<{ amount: string; unit: string }>(entity, 'P2046');
+      const squareKm = area?.unit.endsWith('/Q712226')
+        ? Number(area.amount)
+        : area?.unit.endsWith('/Q25343')
+          ? Number(area.amount) / 1e6
+          : undefined;
+      const region = (entity.claims?.P31 ?? []).some((x) =>
+        ['Q82794', 'Q618123', 'Q6256', 'Q5107'].includes(
+          (x.mainsnak?.datavalue?.value as { id?: string })?.id ?? '',
+        ),
+      );
+      const radiusKm =
+        region && squareKm && squareKm > 0
+          ? Math.sqrt(squareKm / Math.PI)
+          : undefined;
       return {
+        capital,
+        radiusKm,
         qid: entity.id,
         label:
           entity.labels?.zh?.value ?? entity.labels?.en?.value ?? entity.id,

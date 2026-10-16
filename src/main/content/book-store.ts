@@ -1,9 +1,16 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, copyFile, rename } from 'node:fs/promises';
 import { join, extname, resolve, relative, isAbsolute } from 'node:path';
-import { parseEpub, cfiAt } from './epub';
-import type { OpenBook, ProbeMark } from '../../shared/book';
+import { parseEpub } from './epub';
+
 import { validateCFI } from '../../shared/cfi';
+export interface StoredBook {
+  id: string;
+  title: string;
+  author: string;
+  bytes: Uint8Array;
+  currentCFI?: string;
+}
 interface Index {
   id: string;
   currentCFI?: string;
@@ -12,7 +19,7 @@ export class BookStore {
   private index?: Index;
   private writing: Promise<void> = Promise.resolve();
   constructor(readonly dir: string) {}
-  async import(path: string): Promise<OpenBook> {
+  async import(path: string): Promise<StoredBook> {
     if (extname(path).toLowerCase() !== '.epub')
       throw new Error('Only EPUB is supported');
     const repo = resolve(process.cwd());
@@ -42,7 +49,7 @@ export class BookStore {
       });
     return this.writing;
   }
-  async open(): Promise<OpenBook> {
+  async open(): Promise<StoredBook> {
     if (!this.index)
       this.index = JSON.parse(
         await readFile(join(this.dir, 'reader.json'), 'utf8'),
@@ -51,32 +58,15 @@ export class BookStore {
       join(this.dir, 'books', `${this.index!.id}.epub`),
     );
     const book = parseEpub(bytes);
-    const chapter = book.chapters[0];
-    const marks: ProbeMark[] = [];
-    for (const [name, type] of [
-      ['纸湾', 'place'],
-      ['阿林', 'person'],
-    ] as const) {
-      const offset = chapter.text.indexOf(name);
-      if (offset >= 0)
-        marks.push({
-          name,
-          type,
-          chapter: 0,
-          startCFI: cfiAt(chapter, offset),
-          endCFI: cfiAt(chapter, offset + name.length),
-        });
-    }
     return {
       id: this.index!.id,
       title: book.title,
       author: book.author,
       bytes,
       currentCFI: this.index!.currentCFI,
-      marks,
     };
   }
-  async restore(): Promise<OpenBook | null> {
+  async restore(): Promise<StoredBook | null> {
     try {
       return await this.open();
     } catch (error) {

@@ -15,6 +15,9 @@ export interface WikiCandidate {
   lat?: number;
   lon?: number;
   types: string[];
+  radiusKm?: number;
+  capital?: { name: string; lat: number; lon: number };
+  coordinateSource?: string;
   country?: string;
   image?: string;
   birth?: string;
@@ -35,6 +38,7 @@ export interface Entity {
   confidence: number;
   status: 'pending' | 'linked' | 'unlinked';
   review: boolean | null;
+  hidden?: boolean;
 }
 export type ReviewEntity = Omit<Entity, 'note'>;
 export interface PipelineReport {

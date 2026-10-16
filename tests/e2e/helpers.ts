@@ -10,7 +10,12 @@ export async function launchIsolated(
 ) {
   const app = await electron.launch({
     args: ['out/main/index.js'],
-    env: { ...process.env, ...extra, VIVID_USER_DATA: userData },
+    env: {
+      ...process.env,
+      DEEPSEEK_API_KEY: '',
+      ...extra,
+      VIVID_USER_DATA: userData,
+    },
   });
   await app.firstWindow();
   // Keep desktop pointer input from cancelling CDP hover actions.
@@ -29,6 +34,15 @@ export async function capture(
   page: Page,
   path: string,
 ) {
+  await page.locator('.glimpse-card').evaluateAll(async (cards) => {
+    await Promise.all(
+      cards.flatMap((card) =>
+        card
+          .getAnimations()
+          .map((animation) => animation.finished.catch(() => {})),
+      ),
+    );
+  });
   const window = await app.browserWindow(page);
   const png = await window.evaluate(async (window) =>
     (

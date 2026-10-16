@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, BrowserWindow } from 'electron';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { Value } from 'typebox/value';
@@ -8,23 +8,64 @@ import {
   ApiKeySchema,
   PositionSchema,
   ReviewSchema,
+  RelocateSchema,
+  IdSchema,
+  GlossSchema,
+  CorrectSchema,
+  WikiSearchSchema,
 } from '../../shared/ipc';
 import type { OpenBook } from '../../shared/book';
 import type { PipelineStatus } from '../../shared/pipeline';
-import { BookStore } from '../content/book-store';
+import { BookStore, type StoredBook } from '../content/book-store';
 import { parseEpub, cfiAt } from '../content/epub';
 import { KeyStore } from '../llm/keys';
 import { completeText } from '../llm/model';
 import { openRepository } from '../db/repository';
 import { runPipeline } from '../pipeline/pipeline';
 import { WikidataClient } from '../wikidata/client';
+import { registerBookDisplay } from '../content/display';
+import { ContentGateway } from '../content/gateway';
+import { GlossService } from '../content/gloss';
+import {
+  advanceBoundary,
+  DWELL_MS,
+  type BoundaryState,
+} from '../boundary/state';
+import type { Navigation } from '../../shared/reading';
+import type { WikiCandidate } from '../../shared/entity';
 export function registerIPC() {
   const dir = app.getPath('userData');
   const books = new BookStore(dir);
   const keys = new KeyStore(dir);
   const repo = openRepository(join(dir, 'vivid.sqlite'));
   const wiki = new WikidataClient(repo);
-  let current: OpenBook | null = null;
+  let current: StoredBook | null = null;
+  const displayURL = registerBookDisplay(dir, () => current?.id);
+  let boundary: BoundaryState | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let gloss: GlossService | undefined;
+  const candidates = new Map<string, WikiCandidate[]>();
+  const gateway = () => {
+    if (!current) throw new Error('No current book');
+    return new ContentGateway(repo, current.id);
+  };
+  const notify = () => {
+    if (!current) return;
+    const state = gateway().state(current.currentCFI);
+    for (const win of BrowserWindow.getAllWindows())
+      win.webContents.send('vivid:state', state);
+  };
+  const persist = () => {
+    if (!current || !boundary) return;
+    current.currentCFI = boundary.currentCFI;
+    repo.saveProgress(current.id, boundary.currentCFI, boundary.boundaryCFI);
+    void books.savePosition(boundary.currentCFI).catch(() => {});
+  };
+  const visibleEntity = (id: string) => {
+    if (!gateway().card(id)) throw new Error('Entity is outside read boundary');
+    const mention = repo.mentions(current!.id).find((x) => x.id === id)!;
+    return repo.entities(current!.id).find((x) => x.id === mention.entityId)!;
+  };
   let queue = Promise.resolve();
   const states = new Map<string, PipelineStatus['state']>();
   const dev = !!process.env.ELECTRON_RENDERER_URL && !app.isPackaged;
@@ -51,6 +92,7 @@ export function registerIPC() {
           wiki,
           { limit: 2 },
         );
+        notify();
         states.set(
           book.id,
           repo.jobs(book.id).some((job) => job.status === 'failed')
@@ -62,7 +104,7 @@ export function registerIPC() {
       }
     });
   }
-  function activate(book: OpenBook | null) {
+  function activate(book: StoredBook | null) {
     if (!book) {
       current = null;
       return null;
@@ -80,13 +122,31 @@ export function registerIPC() {
     const initial = cfiAt(parsed.chapters[0], 0);
     if (!repo.progress(book.id))
       repo.saveProgress(book.id, book.currentCFI ?? initial, initial);
-    current = {
-      ...book,
-      currentCFI: repo.progress(book.id)?.current ?? book.currentCFI,
+    clearTimeout(timer);
+    current = { ...book, currentCFI: repo.progress(book.id)!.current };
+    boundary = {
+      currentCFI: current.currentCFI!,
+      boundaryCFI: repo.progress(book.id)!.boundary,
     };
+    const content = gateway();
+    gloss = new GlossService(repo, content, async (context) => {
+      const key = (await keys.get()) ?? process.env.DEEPSEEK_API_KEY;
+      if (!key) throw new Error('No model key');
+      return completeText(context, key);
+    });
     start();
-    return current;
+    const result: OpenBook = {
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      url: displayURL(book.id),
+      currentCFI: current.currentCFI,
+      fresh: !book.currentCFI,
+      marks: content.state(current.currentCFI).marks,
+    };
+    return result;
   }
+
   const handle = (
     channel: string,
     schema: TSchema,
@@ -111,13 +171,98 @@ export function registerIPC() {
   handle('vivid:restore', EmptySchema, async () =>
     activate(await books.restore()),
   );
-  handle('vivid:position', PositionSchema, async (payload) => {
+  handle('vivid:position', PositionSchema, (payload) => {
+    if (!boundary) return;
     const cfi = (payload as { cfi: string }).cfi;
-    await books.savePosition(cfi);
-    if (current) {
-      const progress = repo.progress(current.id)!;
-      repo.saveProgress(current.id, cfi, progress.boundary);
-    }
+    gateway().position(cfi);
+    boundary = advanceBoundary(boundary, {
+      type: 'relocate',
+      cfi,
+      mode: 'jump',
+      now: Date.now(),
+    }).state;
+    persist();
+  });
+  handle('vivid:relocate', RelocateSchema, (payload) => {
+    const { cfi, mode } = payload as { cfi: string; mode: Navigation };
+    gateway().position(cfi);
+    gateway().position(cfi, true);
+    boundary = advanceBoundary(boundary!, {
+      type: 'relocate',
+      cfi,
+      mode,
+      now: Date.now(),
+    }).state;
+    persist();
+    clearTimeout(timer);
+    if (boundary.pending)
+      timer = setTimeout(() => {
+        boundary = advanceBoundary(boundary!, {
+          type: 'dwell',
+          now: Date.now(),
+        }).state;
+        persist();
+        notify();
+      }, DWELL_MS + 10);
+    const state = gateway().state(cfi);
+    for (const id of gateway().prefetch(state.currentChapter))
+      void gloss?.ensure(id);
+    return state;
+  });
+  handle('vivid:reader-state', EmptySchema, () =>
+    current ? gateway().state(current.currentCFI) : null,
+  );
+  handle('vivid:boundary', PositionSchema, (payload) => {
+    const cfi = gateway().position((payload as { cfi: string }).cfi, true).cfi;
+    const result = advanceBoundary(boundary!, { type: 'manual', cfi });
+    boundary = result.state;
+    if (result.archive) repo.archiveConversations(current!.id);
+    clearTimeout(timer);
+    persist();
+    notify();
+    return gateway().state(current!.currentCFI);
+  });
+  handle('vivid:card', IdSchema, (payload) =>
+    gloss!.card((payload as { id: string }).id),
+  );
+  handle('vivid:gloss', GlossSchema, async (payload) => {
+    const { id, retry } = payload as { id: string; retry: boolean };
+    await gloss!.ensure(id, retry);
+    return gloss!.card(id);
+  });
+  handle('vivid:known', IdSchema, (payload) => {
+    const entity = visibleEntity((payload as { id: string }).id);
+    repo.setKnown(current!.id, entity.id);
+    notify();
+  });
+  handle('vivid:correct', CorrectSchema, (payload) => {
+    const { id, action, qid } = payload as {
+      id: string;
+      action: 'link' | 'concept' | 'hide';
+      qid?: string;
+    };
+    const entity = visibleEntity(id);
+    if (action === 'link') {
+      const chosen = [...entity.candidates, ...(candidates.get(id) ?? [])].find(
+        (x) => x.qid === qid,
+      );
+      if (!chosen) throw new Error('Choose a verified candidate');
+      repo.correct(entity.id, 'linked', chosen);
+    } else
+      repo.correct(
+        entity.id,
+        action === 'concept' ? 'type' : 'hidden',
+        action === 'concept' ? 'concept' : true,
+      );
+    notify();
+  });
+  handle('vivid:candidates', WikiSearchSchema, async (payload) => {
+    const { id, query } = payload as { id: string; query: string };
+    visibleEntity(id);
+    const found = await wiki.search(query, query);
+    if (!gateway().card(id)) return [];
+    candidates.set(id, found);
+    return found;
   });
   handle('vivid:set-key', ApiKeySchema, async (payload) => {
     await keys.set((payload as { value: string }).value);

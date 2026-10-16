@@ -1,4 +1,5 @@
 import { launchIsolated, capture } from './helpers';
+import { seedReading } from './seed';
 import {
   test,
   expect,
@@ -8,7 +9,6 @@ import {
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildEpub } from '../fixtures/build-epub';
 import { parseEpub, sampleOffsets, cfiAt } from '../../src/main/content/epub';
 import type { FoliateView } from '../../src/renderer/reader/engine';
 const launch = launchIsolated;
@@ -44,9 +44,8 @@ async function roundtrip(
   }, samples);
 }
 test('imports, roundtrips 200 offsets, highlights without changing CFI, hovers and restores', async () => {
-  const file = await buildEpub();
-  const parsed = parseEpub(await readFile(file));
   const data = await mkdtemp(join(tmpdir(), 'vivid-reader-e2e-'));
+  const { file, parsed } = await seedReading(data);
   let app = await launch(data);
   try {
     const page = await app.firstWindow();
@@ -108,7 +107,11 @@ test('imports, roundtrips 200 offsets, highlights without changing CFI, hovers a
     await page.mouse.move(point.x, point.y, { steps: 5 });
     await expect(page.getByRole('tooltip', { name: '实体旁注' })).toBeVisible();
     const card = await page.getByRole('tooltip').boundingBox();
-    expect(card!.y >= point.y || card!.y + card!.height < point.y).toBe(true);
+    expect(
+      card!.x > point.x ||
+        card!.y >= point.y ||
+        card!.y + card!.height < point.y,
+    ).toBe(true);
     await capture(app, page, '/tmp/vivid-g1-reader.png');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('tooltip')).toHaveCount(0);

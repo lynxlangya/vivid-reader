@@ -87,7 +87,8 @@ G0 完成后，把这张表写进 AGENTS.md 的“常用命令”节，替换掉
 
 - 所有窗口：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - 拦截 `will-navigate`；`setWindowOpenHandler` 一律拒绝（外链交给 `shell.openExternal`，且只放行 https）；权限请求一律拒绝。
-- CSP：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' blob:; frame-src blob:; connect-src 'self'`（foliate-js 用 blob URL 装载章节及其中的图片、字体、样式；G1 若发现还缺哪项，按最小范围补充并记录）。渲染进程不发起任何外网请求，Wikidata 等外部请求都在主进程完成。
+- CSP：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' blob:; frame-src blob:; connect-src 'self' vivid-book:`（foliate-js 用 blob URL 装载章节及其中的图片、字体、样式；G1 若发现还缺哪项，按最小范围补充并记录）。渲染进程不发起任何外网请求，Wikidata 等外部请求都在主进程完成。
+- G3 原文装载改为主进程本地 `vivid-book:` capability 协议，普通 IPC 不传原文；增加的 CSP scheme 只服务本地当前书，不开放外网（D-38，待 review）。
 - EPUB 内的脚本不执行（foliate-js iframe 不开放 scripts）。
 
 ### 2.3 IPC

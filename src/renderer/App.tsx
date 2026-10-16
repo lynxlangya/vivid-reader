@@ -3,8 +3,13 @@ import type { OpenBook } from '../shared/book';
 import { Reader } from './reader/Reader';
 import { Review } from './Review';
 import type { MarkHit } from './reader/marks';
+import type { ReaderState } from '../shared/reading';
+import { Card } from './glimpse/Card';
 export function App() {
   const [book, setBook] = useState<OpenBook | null>(null);
+  const [readerState, setReaderState] = useState<ReaderState | null>(null);
+  const [theme, setTheme] = useState('day');
+  const [companion, setCompanion] = useState(false);
   const [settings, setSettings] = useState(false);
   const [review, setReview] = useState(false);
   const [key, setKey] = useState('');
@@ -34,6 +39,7 @@ export function App() {
       .then(setBook)
       .catch(() => setStatus('上次的书暂时无法恢复'));
     void window.vivid.hasApiKey().then(setHasKey);
+    const unsubscribe = window.vivid.onReaderState(setReaderState);
     const esc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         clearTimeout(openTimer.current);
@@ -46,6 +52,7 @@ export function App() {
     };
     window.addEventListener('keydown', esc);
     return () => {
+      unsubscribe();
       window.removeEventListener('keydown', esc);
       clearTimeout(openTimer.current);
       clearTimeout(closeTimer.current);
@@ -55,8 +62,8 @@ export function App() {
     if (pinnedRef.current) return;
     if (next) {
       clearTimeout(closeTimer.current);
-      if (pending.current === next.mark.name) return;
-      pending.current = next.mark.name;
+      if (pending.current === next.mark.id) return;
+      pending.current = next.mark.id;
       clearTimeout(openTimer.current);
       openTimer.current = setTimeout(() => setHit(next), 250);
     } else {
@@ -67,7 +74,7 @@ export function App() {
     }
   }
   return (
-    <main className="page">
+    <main className={`page ${companion ? 'with-companion' : ''}`}>
       <header className="app-actions">
         <button
           onClick={() => {
@@ -83,6 +90,27 @@ export function App() {
           导入 EPUB
         </button>
         <button onClick={() => setSettings(!settings)}>设置</button>
+        <button
+          onClick={() => {
+            const next = theme === 'day' ? 'night' : 'day';
+            document.documentElement.classList.toggle(
+              'night',
+              next === 'night',
+            );
+            setTheme(next);
+            close();
+          }}
+        >
+          切换日夜
+        </button>
+        <button
+          onClick={() => {
+            setCompanion(!companion);
+            close();
+          }}
+        >
+          伴读
+        </button>
         {import.meta.env.DEV && (
           <button onClick={() => setReview(true)}>开发核对</button>
         )}
@@ -91,6 +119,9 @@ export function App() {
         <Reader
           key={book.id}
           book={book}
+          state={readerState}
+          onState={setReaderState}
+          theme={theme}
           onHover={hover}
           onClick={(next) => {
             close();
@@ -158,35 +189,76 @@ export function App() {
           <button onClick={() => setSettings(false)}>关闭</button>
         </section>
       )}
+      {readerState?.beyond && (
+        <aside className="beyond">
+          此处在已读范围之后 ·{' '}
+          <button
+            onClick={() =>
+              void window.vivid
+                .setBoundary(readerState.currentCFI)
+                .then(setReaderState)
+            }
+          >
+            设为已读至此
+          </button>
+        </aside>
+      )}
+      {companion && (
+        <aside className="companion" aria-label="伴读">
+          <h2>伴读</h2>
+          <p className="boundary-label">
+            已读至 第
+            {new Intl.NumberFormat('zh-CN-u-nu-hanidec').format(
+              (readerState?.boundaryChapter ?? 0) + 1,
+            )}
+            章
+          </p>
+          <p>伴读只知道朱线之前的内容</p>
+        </aside>
+      )}
       {hit && (
-        <aside
-          role={pinned ? 'dialog' : 'tooltip'}
-          aria-label="实体旁注"
-          className="probe-card"
-          style={{
-            left: Math.min(hit.rect.left, window.innerWidth - 380),
-            top:
-              hit.rect.bottom + 200 > window.innerHeight
-                ? Math.max(60, hit.rect.top - 190)
-                : hit.rect.bottom + 10,
-          }}
-          onMouseEnter={() => clearTimeout(closeTimer.current)}
-          onMouseLeave={() => {
+        <Card
+          key={hit.mark.id}
+          hit={hit}
+          pinned={pinned}
+          onClose={close}
+          onEnter={() => clearTimeout(closeTimer.current)}
+          onLeave={() => {
             if (!pinnedRef.current)
               closeTimer.current = setTimeout(() => setHit(null), 200);
           }}
-        >
-          <h2>{hit.mark.name}</h2>
-          <p>{hit.mark.type === 'place' ? '地点' : '人物'}</p>
-          <p>试读专名旁注</p>
-          {pinned && <button onClick={close}>关闭</button>}
-        </aside>
+          onKnown={() => void window.vivid.readerState().then(setReaderState)}
+          onAsk={() => {
+            setCompanion(true);
+            close();
+          }}
+        />
       )}
       <div className="progress">
-        <i className="read" />
-        <i className="cur" />
-        <i className="bound" />
-        <span className="bound-lab">已读至 第一章</span>
+        <i
+          className="read"
+          style={{ width: `${(readerState?.boundaryFraction ?? 0) * 100}%` }}
+        />
+        <i
+          className="cur"
+          style={{ left: `${(readerState?.currentFraction ?? 0) * 100}%` }}
+        />
+        <i
+          className="bound"
+          style={{ left: `${(readerState?.boundaryFraction ?? 0) * 100}%` }}
+        />
+        <span
+          className="bound-lab"
+          style={{
+            left: `${Math.max(4, (readerState?.boundaryFraction ?? 0) * 100)}%`,
+          }}
+        >
+          已读至 第
+          {new Intl.NumberFormat('zh-CN-u-nu-hanidec').format(
+            (readerState?.boundaryChapter ?? 0) + 1,
+          )}
+          章
+        </span>
       </div>
     </main>
   );

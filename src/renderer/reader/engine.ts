@@ -28,7 +28,7 @@ export interface FoliateView extends HTMLElement {
     pages: number;
   };
   lastLocation?: ReadingLocation;
-  open(file: File): Promise<void>;
+  open(file: File | string): Promise<void>;
   init(options: { lastLocation?: string }): Promise<void>;
   close(): void;
   next(): Promise<void>;

@@ -11,6 +11,7 @@ import type {
   ReviewEntity,
 } from '../../shared/entity';
 import { cfiAt } from '../content/epub';
+import type { Mention } from '../../shared/reading';
 interface BookRecord {
   id: string;
   title: string;
@@ -121,6 +122,7 @@ export function openRepository(path: string) {
           entity.confidence = value ? 1 : 0;
         }
         if (row.field === 'type') entity.type = value as Entity['type'];
+        if (row.field === 'hidden') entity.hidden = value === true;
       }
       return entity;
     });
@@ -263,7 +265,11 @@ export function openRepository(path: string) {
     },
     entities,
     rawEntities,
-    correct(entityId: string, field: 'linked' | 'type', value: unknown) {
+    correct(
+      entityId: string,
+      field: 'linked' | 'type' | 'hidden',
+      value: unknown,
+    ) {
       const row = db
         .prepare('SELECT book_id FROM entities WHERE id=?')
         .get(entityId);
@@ -273,7 +279,11 @@ export function openRepository(path: string) {
       );
       if (!entity) throw new Error('Entity has been merged');
       const oldValue =
-        field === 'linked' ? (entity.linked ?? null) : entity.type;
+        field === 'linked'
+          ? (entity.linked ?? null)
+          : field === 'hidden'
+            ? !!entity.hidden
+            : entity.type;
       db.prepare(
         'INSERT INTO corrections(entity_id,field,old_value,new_value,created_at) VALUES (?,?,?,?,?)',
       ).run(
@@ -447,6 +457,87 @@ export function openRepository(path: string) {
       db.prepare(
         'INSERT INTO progress VALUES (?,?,?,?) ON CONFLICT(book_id) DO UPDATE SET current_cfi=excluded.current_cfi,boundary_cfi=excluded.boundary_cfi,updated_at=excluded.updated_at',
       ).run(bookId, current, boundary, Date.now());
+    },
+
+    replaceMentions(chapterId: string, mentions: Mention[]) {
+      transaction(() => {
+        db.prepare('DELETE FROM mentions WHERE chapter_id=?').run(chapterId);
+        const insert = db.prepare(
+          'INSERT INTO mentions VALUES (?,?,?,?,?,?,?,?)',
+        );
+        for (const mention of mentions)
+          insert.run(
+            mention.id,
+            mention.entityId,
+            chapterId,
+            mention.cfiRange,
+            mention.start,
+            mention.end,
+            Number(
+              mentions.find((x) => x.entityId === mention.entityId)?.id ===
+                mention.id,
+            ),
+            1,
+          );
+      });
+    },
+    mentions(
+      bookId: string,
+    ): Omit<Mention, 'surface' | 'startCFI' | 'endCFI'>[] {
+      return db
+        .prepare(
+          'SELECT m.*,c.idx FROM mentions m JOIN chapters c ON c.id=m.chapter_id WHERE c.book_id=? ORDER BY c.idx,m.char_offset',
+        )
+        .all(bookId)
+        .map((row) => ({
+          id: String(row.id),
+          entityId: String(row.entity_id),
+          chapterId: String(row.chapter_id),
+          chapter: Number(row.idx),
+          start: Number(row.char_offset),
+          end: Number(row.end_offset),
+          cfiRange: String(row.cfi_range),
+        }));
+    },
+    known(bookId: string): string[] {
+      return db
+        .prepare('SELECT entity_id FROM known WHERE book_id=?')
+        .all(bookId)
+        .map((row) => String(row.entity_id));
+    },
+    setKnown(bookId: string, entityId: string) {
+      db.prepare('INSERT OR IGNORE INTO known VALUES (?,?)').run(
+        bookId,
+        entityId,
+      );
+    },
+    gloss(entityId: string, chapterId: string): string | undefined {
+      const row = db
+        .prepare('SELECT text FROM glosses WHERE entity_id=? AND chapter_id=?')
+        .get(entityId, chapterId);
+      return row ? String(row.text) : undefined;
+    },
+    saveGloss(
+      entityId: string,
+      chapterId: string,
+      text: string,
+      model: string,
+    ) {
+      db.prepare(
+        'INSERT INTO glosses VALUES (?,?,?,?,?,?) ON CONFLICT(entity_id,chapter_id) DO UPDATE SET text=excluded.text,model=excluded.model,created_at=excluded.created_at',
+      ).run(
+        entityId + ':' + chapterId,
+        entityId,
+        chapterId,
+        text,
+        model,
+        Date.now(),
+      );
+    },
+    archiveConversations(bookId: string) {
+      db.prepare(
+        'UPDATE conversations SET archived=1 WHERE book_id=? AND archived=0',
+      ).run(bookId);
     },
     report,
   };

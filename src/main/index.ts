@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session } from 'electron';
 import { join } from 'node:path';
+import './content/display';
 import { registerIPC } from './ipc';
 import { runReportCLI } from './pipeline/report-cli';
 app.setName('Vivid');

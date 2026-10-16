@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { locateMentions } from './mentions';
 import { Type } from 'typebox';
 import type { Repository } from '../db/repository';
 import { parseEpub } from '../content/epub';
@@ -239,6 +240,11 @@ async function executePipeline(
     }
   }
   repo.coalesceSameQid(input.id);
+  for (const chapter of repo.chapters(input.id))
+    repo.replaceMentions(
+      chapter.id,
+      locateMentions(chapter, repo.entities(input.id)),
+    );
   return repo.report(input.id);
 }
 

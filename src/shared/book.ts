@@ -14,18 +14,13 @@ export interface Chapter {
   runs: TextRun[];
   blocks?: number[];
 }
-export interface ProbeMark {
-  name: string;
-  type: 'place' | 'person';
-  chapter: number;
-  startCFI: string;
-  endCFI: string;
-}
+export type { ReaderMark as ProbeMark } from './reading';
 export interface OpenBook {
   id: string;
   title: string;
   author: string;
-  bytes: Uint8Array;
+  url: string;
   currentCFI?: string;
-  marks: ProbeMark[];
+  fresh: boolean;
+  marks: import('./reading').ReaderMark[];
 }

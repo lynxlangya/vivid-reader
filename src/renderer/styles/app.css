@@ -118,3 +118,95 @@ textarea:focus-visible {
     transition-duration: 0.1s !important;
   }
 }
+
+.app-actions,
+.reader-actions {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  display: flex;
+  gap: 16px;
+  z-index: 5;
+  -webkit-app-region: no-drag;
+}
+.app-actions {
+  right: 180px;
+}
+.reader-actions {
+  top: 52px;
+}
+button {
+  border: 0;
+  background: transparent;
+  color: var(--smoke);
+  padding: 4px 8px;
+}
+button:hover {
+  color: var(--accent);
+}
+.reader-host {
+  position: absolute;
+  left: max(80px, calc((100vw - 800px) / 2));
+  width: 680px;
+  top: 88px;
+  bottom: 72px;
+}
+foliate-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.toc {
+  position: absolute;
+  left: 0;
+  top: 60px;
+  bottom: 40px;
+  width: 280px;
+  padding: 24px;
+  background: var(--sand);
+  z-index: 10;
+  border-right: 1px solid var(--border);
+}
+.toc button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-book);
+  padding: 14px 0;
+}
+.probe-card,
+.settings {
+  position: absolute;
+  z-index: 20;
+  width: 360px;
+  padding: 20px;
+  background: var(--silk);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--sh-2);
+}
+.probe-card h2 {
+  font: 600 22px var(--font-book);
+  margin: 0 0 12px;
+}
+.probe-card p {
+  color: var(--smoke);
+}
+.settings {
+  right: 30px;
+  top: 70px;
+}
+.settings input {
+  display: block;
+  width: 100%;
+  background: var(--sand);
+  border: 1px solid var(--border);
+  padding: 8px;
+  color: var(--ink);
+}
+.status {
+  position: absolute;
+  bottom: 48px;
+  left: 40px;
+  color: var(--smoke);
+}

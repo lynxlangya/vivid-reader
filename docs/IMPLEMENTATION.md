@@ -51,7 +51,7 @@ M4 可选“大图”才安装：`maplibre-gl` 6.14.0、`pmtiles` 4.5.0、`@prot
 
 | 名称 | 版本 | 位置 | 说明 |
 |---|---|---|---|
-| foliate-js | commit `78914aef4466eb960965702401634c2cb348e9b1`（2026-05-01） | `src/renderer/vendor/foliate-js/` | MIT；npm 上没有正式包。原样复制，附 `LICENSE` 和 `VENDOR.md`（写明来源 URL、commit、本地改动；原则上不做本地改动） |
+| foliate-js | commit `78914aef4466eb960965702401634c2cb348e9b1`（2026-05-01） | `src/renderer/vendor/foliate-js/` | MIT；npm 上没有正式包。原样复制，附 `LICENSE` 和 `VENDOR.md`（写明来源 URL、commit、本地改动；原则上不做本地改动）。实际集成只移除分页 / 固定版式两处 `allow-scripts`，遵守 2.2，见 D-37（待 review） |
 
 ### 1.4 明确不用
 

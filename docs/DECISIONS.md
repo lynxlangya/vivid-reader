@@ -169,3 +169,8 @@
 ### D-36 MVP 不用 pi-durable，字体随应用打包
 - **决定**：伴读对话直接存在 SQLite 的 `conversations` 表，不引入 `@earendil-works/pi-durable`。楷体（霞鹜文楷 Regular，`lxgw-wenkai-webfont` 1.7.0，OFL-1.1）随应用打包，不在运行时从 CDN 加载；宋体使用系统字体。
 - **理由**：每本书一条会话，SQLite 足够，少一个依赖；应用要能离线使用，渲染进程也不发外网请求（CSP）。
+
+### D-37 foliate 章节 iframe 禁止执行脚本（待 review）
+- **决定**：保留指定 foliate commit，仅对分页与固定版式 iframe 的 sandbox 各做一处安全补丁：移除 `allow-scripts`，保留 `allow-same-origin` 供宿主排版及命中测试。记录于 VENDOR.md。
+- **依据**：原始代码为 WebKit 事件兼容启用了脚本，与 IMPLEMENTATION 2.2 相冲突。Electron 使用 Chromium；优先遵守项目安全约束，测试确认禁脚本后仍可分页和响应宿主事件。
+- **验证**：通过合成 EPUB 内嵌脚本哨兵及实际 iframe sandbox 检查验收，不依赖提示词或事后清理。

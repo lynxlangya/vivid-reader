@@ -38,7 +38,7 @@ export async function buildEpub() {
   );
   syntheticParagraphs.forEach((text, i) => {
     entries[`EPUB/c${i}.xhtml`] = strToU8(
-      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第${i + 1}章</title></head><body><h1>第${i + 1}章</h1>${Array.from({ length: 16 }, () => `<p>${text}</p>`).join('')}<p>复杂<em>内联</em>文字 &amp; 空格。😀</p></body></html>`,
+      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第${i + 1}章</title><script>globalThis.vividBookScriptExecuted=true;top.vividBookScriptExecuted=true</script></head><body><h1>第${i + 1}章</h1>${Array.from({ length: 16 }, () => `<p>${text}</p>`).join('')}<p>复杂<em>内联</em>文字 &amp; 空格。😀</p></body></html>`,
     );
   });
   const path = join(dir, 'synthetic.epub');

@@ -66,6 +66,14 @@ export function openRepository(path: string) {
       throw error;
     }
   }
+  type MentionRow = Omit<Mention, 'surface' | 'startCFI' | 'endCFI'>;
+  // Frozen snapshots for hot read paths. putChapter and replaceMentions are the
+  // only writers of these tables and clear them, as does any rollback. This
+  // assumes one Repository per database file in the process.
+  const chapterCache = new Map<string, Chapter[]>();
+  const mentionCache = new Map<string, MentionRow[]>();
+  const freeze = <T extends object>(rows: T[]): T[] =>
+    Object.freeze(rows.map((row) => Object.freeze(row))) as T[];
   let active = false;
   const transaction = <T>(run: () => T): T => {
     if (active) return run();
@@ -77,6 +85,8 @@ export function openRepository(path: string) {
       return result;
     } catch (error) {
       db.exec('ROLLBACK');
+      chapterCache.clear();
+      mentionCache.clear();
       throw error;
     } finally {
       active = false;
@@ -179,6 +189,8 @@ export function openRepository(path: string) {
         }));
     },
     putChapter(bookId: string, chapter: Chapter) {
+      chapterCache.delete(bookId);
+      mentionCache.delete(bookId);
       db.prepare(
         'INSERT INTO chapters VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,start_cfi=excluded.start_cfi,end_cfi=excluded.end_cfi,char_count=excluded.char_count,href=excluded.href,base_cfi=excluded.base_cfi,body_path=excluded.body_path,text=excluded.text,runs_json=excluded.runs_json,blocks_json=excluded.blocks_json',
       ).run(
@@ -198,7 +210,9 @@ export function openRepository(path: string) {
       );
     },
     chapters(bookId: string): Chapter[] {
-      return db
+      const cached = chapterCache.get(bookId);
+      if (cached) return cached;
+      const chapters = db
         .prepare('SELECT * FROM chapters WHERE book_id=? ORDER BY idx')
         .all(bookId)
         .map((row) => ({
@@ -212,6 +226,8 @@ export function openRepository(path: string) {
           runs: JSON.parse(String(row.runs_json)) as Chapter['runs'],
           blocks: JSON.parse(String(row.blocks_json)) as number[],
         }));
+      chapterCache.set(bookId, freeze(chapters));
+      return chapterCache.get(bookId)!;
     },
     putChunk(chapterId: string, index: number, entities: ExtractedEntity[]) {
       db.prepare('INSERT OR REPLACE INTO extraction_chunks VALUES (?,?,?)').run(
@@ -461,6 +477,7 @@ export function openRepository(path: string) {
     },
 
     replaceMentions(chapterId: string, mentions: Mention[]) {
+      mentionCache.clear();
       transaction(() => {
         db.prepare('DELETE FROM mentions WHERE chapter_id=?').run(chapterId);
         const insert = db.prepare(
@@ -482,10 +499,10 @@ export function openRepository(path: string) {
           );
       });
     },
-    mentions(
-      bookId: string,
-    ): Omit<Mention, 'surface' | 'startCFI' | 'endCFI'>[] {
-      return db
+    mentions(bookId: string): MentionRow[] {
+      const cached = mentionCache.get(bookId);
+      if (cached) return cached;
+      const mentions = db
         .prepare(
           'SELECT m.*,c.idx FROM mentions m JOIN chapters c ON c.id=m.chapter_id WHERE c.book_id=? ORDER BY c.idx,m.char_offset',
         )
@@ -499,6 +516,8 @@ export function openRepository(path: string) {
           end: Number(row.end_offset),
           cfiRange: String(row.cfi_range),
         }));
+      mentionCache.set(bookId, freeze(mentions));
+      return mentionCache.get(bookId)!;
     },
     known(bookId: string): string[] {
       return db

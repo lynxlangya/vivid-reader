@@ -57,6 +57,7 @@ npm run check       # 类型、lint、单元测试、仓库卫生
 npm run build       # 三端生产构建
 npm run test:e2e    # 实际 Electron：导入、CFI、旁注、边界、伴读、设置
 npm run test:live   # 缺少 DEEPSEEK_API_KEY 时自动跳过
+npm run test:perf   # 合成大书上的主进程热路径耗时
 npm run report:m1   # 本机报告，只输出统计与报告路径
 ```
 

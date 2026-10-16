@@ -44,6 +44,7 @@
 | `npm run lint` | ESLint 与 Prettier |
 | `npm test` | 无密钥单元测试 |
 | `npm run test:live` | 真实模型测试，无密钥自动跳过 |
+| `npm run test:perf` | 内存合成大书上的热路径耗时与预算，不在 check 内 |
 | `npm run test:e2e` | 构建后启动 Electron 验收 |
 | `npm run check` | 类型、格式、单元测试、仓库卫生 |
 | `npm run build:mac` | 本机 Apple Silicon 未签名 dmg，输出 release/，不发布 |

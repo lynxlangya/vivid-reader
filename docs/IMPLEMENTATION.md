@@ -77,6 +77,7 @@ M4 可选“大图”才安装：`maplibre-gl` 6.14.0、`pmtiles` 4.5.0、`@prot
 | `npm run lint` | `eslint .` 加 `prettier --check .` |
 | `npm test` | `vitest run`（单元测试，不需要密钥） |
 | `npm run test:live` | 需要 `DEEPSEEK_API_KEY` 的测试；没有密钥时自动跳过 |
+| `npm run test:perf` | 在内存生成约 79 万字、1.2 万处提及的合成书，测翻页、卡片、搜索、总结的中位耗时并断言预算；计时受机器影响，不放进 `check` |
 | `npm run test:e2e` | 先 build，再用 Playwright `_electron` 跑冒烟测试 |
 | `npm run check` | `typecheck` + `lint` + `test` + `audit:repo`，每一步收尾都要跑 |
 | `npm run audit:repo` | 仓库卫生检查，见 2.4 |

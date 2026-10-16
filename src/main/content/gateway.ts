@@ -18,6 +18,15 @@ interface Point {
   offset: number;
   cfi: string;
 }
+interface MentionIndex {
+  chapters: Chapter[];
+  all: Mention[];
+  firstInChapter: Set<string>;
+  firstChapter: Map<string, number>;
+}
+// Keyed by the repository's frozen mention snapshot, so a write that replaces
+// the snapshot also retires the derived index.
+const indexes = new WeakMap<object, MentionIndex>();
 export class ContentGateway {
   constructor(
     private repo: Repository,
@@ -183,22 +192,45 @@ export class ContentGateway {
       })
       .slice(0, 20);
   }
-  private allMentions(): Mention[] {
-    const chapters = this.chapters();
-    return this.repo.mentions(this.bookId).map((mention) => {
+  private index(): MentionIndex {
+    const rows = this.repo.mentions(this.bookId),
+      chapters = this.chapters();
+    const cached = indexes.get(rows);
+    if (cached?.chapters === chapters) return cached;
+    const all = rows.map((mention) => {
       const chapter = chapters[mention.chapter];
-      return {
+      return Object.freeze({
         ...mention,
         surface: chapter.text.slice(mention.start, mention.end),
         startCFI: cfiAt(chapter, mention.start),
         endCFI: cfiAt(chapter, mention.end),
-      };
+      });
     });
+    const firstInChapter = new Set<string>(),
+      firstChapter = new Map<string, number>(),
+      seen = new Set<string>();
+    for (const mention of all) {
+      const key = `${mention.chapter}:${mention.entityId}`;
+      if (!seen.has(key)) firstInChapter.add(mention.id);
+      seen.add(key);
+      if (!firstChapter.has(mention.entityId))
+        firstChapter.set(mention.entityId, mention.chapter);
+    }
+    const index = { chapters, all, firstInChapter, firstChapter };
+    indexes.set(rows, index);
+    return index;
   }
+  private allMentions(): Mention[] {
+    return this.index().all;
+  }
+  // Offsets map to CFIs monotonically, so this equals comparing end CFIs.
   private readMentions() {
     const boundary = this.boundary();
     return this.allMentions().filter(
-      (mention) => compareCFI(mention.endCFI, boundary.cfi) <= 0,
+      (mention) =>
+        mention.chapter < boundary.chapter ||
+        (mention.chapter === boundary.chapter &&
+          mention.end <= boundary.offset),
     );
   }
   marks(
@@ -207,20 +239,19 @@ export class ContentGateway {
     density: 'low' | 'medium' | 'high' = this.preferences().density,
   ): ReaderMark[] {
     const mentions = this.readMentions();
-    const entities = this.repo.entities(this.bookId);
-    const all = this.allMentions();
+    const entities = new Map(
+      this.repo.entities(this.bookId).map((entity) => [entity.id, entity]),
+    );
+    const { firstInChapter, firstChapter } = this.index();
     const start = pageCFI ? this.position(pageCFI) : undefined;
     const end = pageCFI ? this.position(pageCFI, true) : undefined;
     const marks = mentions
       .filter(
         (mention) =>
-          mention.chapter === chapter &&
-          all.find(
-            (x) => x.chapter === chapter && x.entityId === mention.entityId,
-          )?.id === mention.id,
+          mention.chapter === chapter && firstInChapter.has(mention.id),
       )
       .flatMap((mention) => {
-        const entity = entities.find((x) => x.id === mention.entityId);
+        const entity = entities.get(mention.entityId);
         if (
           !entity ||
           entity.hidden ||
@@ -243,21 +274,22 @@ export class ContentGateway {
             startCFI: mention.startCFI,
             endCFI: mention.endCFI,
             importance: entity.importance,
-            seenBefore: mentions.some(
-              (x) => x.entityId === entity.id && x.chapter < chapter,
-            ),
+            // Read mentions here mean every earlier chapter is read.
+            seenBefore: firstChapter.get(entity.id)! < chapter,
           },
         ];
       });
     return sparseMarks(marks, density, new Set(this.repo.known(this.bookId)));
   }
   prefetch(chapter: number) {
-    const known = new Set(this.repo.known(this.bookId));
+    const known = new Set(this.repo.known(this.bookId)),
+      { firstInChapter } = this.index();
     return this.readMentions()
-      .filter((x) => x.chapter === chapter && !known.has(x.entityId))
       .filter(
-        (x, index, all) =>
-          all.findIndex((m) => m.entityId === x.entityId) === index,
+        (x) =>
+          x.chapter === chapter &&
+          firstInChapter.has(x.id) &&
+          !known.has(x.entityId),
       )
       .map((x) => x.id);
   }
@@ -295,6 +327,9 @@ export class ContentGateway {
       .find((x) => x.id === mention.entityId);
     if (!entity) return null;
     const history = visible.filter((x) => x.entityId === entity.id);
+    const firstVisible = new Map<string, Mention>();
+    for (const x of visible)
+      if (!firstVisible.has(x.entityId)) firstVisible.set(x.entityId, x);
     const references =
       entity.linked?.lat === undefined || entity.linked.lon === undefined
         ? []
@@ -305,10 +340,10 @@ export class ContentGateway {
                 x.id !== entity.id &&
                 x.linked?.lat !== undefined &&
                 x.linked.lon !== undefined &&
-                visible.some((m) => m.entityId === x.id),
+                firstVisible.has(x.id),
             )
             .map((other) => ({
-              name: visible.find((m) => m.entityId === other.id)!.surface,
+              name: firstVisible.get(other.id)!.surface,
               lat: other.linked!.lat!,
               lon: other.linked!.lon!,
               distanceKm:

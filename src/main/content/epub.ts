@@ -8,8 +8,13 @@ export interface ParsedBook {
   author: string;
   chapters: Chapter[];
 }
+// XML end-of-line handling: browsers turn CRLF and lone CR into LF before
+// parsing, so offsets only line up with foliate if the main process does too.
 const parse = (xml: string) =>
-  new DOMParser().parseFromString(xml, 'text/xml') as unknown as Document;
+  new DOMParser().parseFromString(
+    xml.replace(/\r\n?/g, '\n'),
+    'text/xml',
+  ) as unknown as Document;
 const unwrap = (value: string) => value.slice(8, -1);
 export function parseEpub(bytes: Uint8Array): ParsedBook {
   const files = unzipSync(bytes);

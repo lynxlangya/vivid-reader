@@ -27,6 +27,18 @@ test('maps decoded XHTML text to stable CFI runs in the main process', async () 
   expect(() => cfiRangeAt(c, 4, 3)).toThrow();
 });
 
+test('normalizes CR and CRLF line endings as the XML parser in Chromium does', async () => {
+  const parse = async (lineEnding: '\n' | '\r\n' | '\r') =>
+    parseEpub(await readFile(await buildEpub({ lineEnding })));
+  const lf = await parse('\n');
+  expect(lf.chapters[0].text).toContain('文字 \n& 空格');
+  for (const lineEnding of ['\r\n', '\r'] as const) {
+    const book = await parse(lineEnding);
+    expect(book.chapters.some((c) => c.text.includes('\r'))).toBe(false);
+    expect(book.chapters).toEqual(lf.chapters);
+  }
+});
+
 test('image-only spine entries have structural positions and do not poison text sampling', async () => {
   const { openRepository } = await import('../src/main/db/repository');
   const { ContentGateway } = await import('../src/main/content/gateway');

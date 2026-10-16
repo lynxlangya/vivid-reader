@@ -9,7 +9,11 @@ export const syntheticParagraphs = [
   'SENTINEL-AFTER-BOUNDARY-4。后文地点雾岛只在此处出现。',
   'SENTINEL-AFTER-BOUNDARY-5。后文人物远客只在此处出现。',
 ];
-export async function buildEpub(options: { imageOnlyCover?: boolean } = {}) {
+export async function buildEpub(
+  options: { imageOnlyCover?: boolean; lineEnding?: '\n' | '\r\n' | '\r' } = {},
+) {
+  // Line breaks between and inside blocks, as editors write them.
+  const eol = options.lineEnding ?? '';
   const dir = await mkdtemp(join(tmpdir(), 'vivid-fixture-'));
   const entries: Record<string, Uint8Array> = {
     mimetype: strToU8('application/epub+zip'),
@@ -54,7 +58,7 @@ export async function buildEpub(options: { imageOnlyCover?: boolean } = {}) {
   );
   syntheticParagraphs.forEach((text, i) => {
     entries[`EPUB/c${i}.xhtml`] = strToU8(
-      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第${i + 1}章</title><script>globalThis.vividBookScriptExecuted=true;top.vividBookScriptExecuted=true</script></head><body><h1>第${i + 1}章</h1>${Array.from({ length: 16 }, () => `<p>${text}</p>`).join('')}<p>复杂<em>内联</em>文字 &amp; 空格。😀</p></body></html>`,
+      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第${i + 1}章</title><script>globalThis.vividBookScriptExecuted=true;top.vividBookScriptExecuted=true</script></head><body>${eol}<h1>第${i + 1}章</h1>${eol}${Array.from({ length: 16 }, () => `<p>${text}</p>`).join(eol)}${eol}<p>复杂<em>内联</em>文字 ${eol}&amp; 空格。😀</p>${eol}</body></html>`,
     );
   });
   const path = join(dir, 'synthetic.epub');

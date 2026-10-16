@@ -147,6 +147,20 @@ test('imports, roundtrips 200 offsets, highlights without changing CFI, hovers a
     await app.close();
   }
 });
+test('CRLF and lone CR line endings keep main-process offsets aligned with Chromium', async () => {
+  for (const lineEnding of ['\r\n', '\r'] as const) {
+    const file = await buildEpub({ lineEnding });
+    const parsed = parseEpub(await readFile(file));
+    const app = await launch(await mkdtemp(join(tmpdir(), 'vivid-eol-e2e-')));
+    try {
+      const page = await app.firstWindow();
+      await importFile(app, page, file);
+      expect(await roundtrip(page, sampleOffsets(parsed))).toBe(0);
+    } finally {
+      await app.close();
+    }
+  }
+});
 test('roundtrips 200 offsets in the optional external EPUB without logging text', async () => {
   test.skip(!process.env.VIVID_TEST_EPUB, 'No external test EPUB supplied');
   const path = process.env.VIVID_TEST_EPUB!;

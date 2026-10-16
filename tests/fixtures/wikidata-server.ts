@@ -41,9 +41,12 @@ export const wikidataRecords: Record<string, FixtureRecord> = {
 };
 // Serves wbsearchentities, wbgetentities and wbgetclaims from records shaped
 // like recorded Wikidata responses, and logs the ids each request asked for.
+// Redirected ids answer as Wikidata does: wbgetentities returns the target
+// under the requested id, wbgetclaims refuses.
 export function wikidataServer(
   searches: Record<string, string[]>,
   records: Record<string, FixtureRecord> = wikidataRecords,
+  redirects: Record<string, string> = {},
 ) {
   const log: { action: string; ids: string[] }[] = [];
   let inFlight = 0;
@@ -65,6 +68,8 @@ export function wikidataServer(
     if (action === 'wbgetclaims') {
       const id = params.get('entity') ?? '';
       log.push({ action, ids: [id] });
+      if (redirects[id])
+        return Response.json({ error: { code: 'unresolved-redirect' } });
       const record = records[id];
       if (!record) return Response.json({ error: { code: 'no-such-entity' } });
       const property = params.get('property') ?? '';
@@ -77,13 +82,15 @@ export function wikidataServer(
     return Response.json({
       entities: Object.fromEntries(
         ids.map((id) => {
-          const record = records[id];
+          const target = redirects[id] ?? id;
+          const record = records[target];
           if (!record) return [id, { id, missing: '' }];
           return [
             id,
             {
               type: 'item',
-              id,
+              id: target,
+              ...(redirects[id] ? { redirects: { from: id, to: target } } : {}),
               ...(props.includes('labels') ? { labels: record.labels } : {}),
               ...(props.includes('descriptions')
                 ? { descriptions: record.descriptions }

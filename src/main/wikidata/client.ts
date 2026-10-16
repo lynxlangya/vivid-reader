@@ -34,7 +34,6 @@ interface WikiEntity {
   labels?: Record<string, { value: string }>;
   descriptions?: Record<string, { value: string }>;
   claims?: Claims;
-  redirects?: { from: string; to: string };
 }
 interface WikiResponse {
   search?: { id: string }[];
@@ -108,13 +107,15 @@ export class WikidataClient {
           }
           if (!response.ok) throw new Error('Wikidata HTTP failure');
           const value = (await response.json()) as WikiResponse;
-          // wbgetentities reports a missing item as an entry; wbgetclaims
-          // fails instead, which means the item has no claims.
-          const missing =
+          // wbgetentities answers a missing or redirected item with an entry;
+          // wbgetclaims answers with these errors, which are answers too.
+          const answer =
             query.get('action') === 'wbgetclaims' &&
-            value.error?.code === 'no-such-entity';
-          if (value.error && !missing) throw new Error('Wikidata API failure');
-          return missing ? { claims: {} } : value;
+            ['no-such-entity', 'unresolved-redirect'].includes(
+              value.error?.code ?? '',
+            );
+          if (value.error && !answer) throw new Error('Wikidata API failure');
+          return value;
         } catch (error) {
           if (attempt === 3)
             throw new WikidataUnavailableError('Wikidata request exhausted', {
@@ -156,13 +157,12 @@ export class WikidataClient {
             format: 'json',
           }),
         );
+        // Keyed by the requested id; a redirect's entry carries its target.
         for (const [id, entity] of Object.entries(result.entities ?? {})) {
           if (!entity.id) continue;
           const value = trim(entity, properties);
-          for (const requested of new Set([id, entity.redirects?.from ?? id])) {
-            this.repo.cachePut(key(requested), value);
-            lookup.found.set(requested, value);
-          }
+          this.repo.cachePut(key(id), value);
+          lookup.found.set(id, value);
         }
       } catch (error) {
         if (!(error instanceof WikidataUnavailableError)) throw error;
@@ -184,7 +184,14 @@ export class WikidataClient {
           entity: id,
           property,
         });
-        lookup.found.set(id, { id, claims: result.claims });
+        if (result.error?.code !== 'unresolved-redirect') {
+          lookup.found.set(id, { id, claims: result.claims ?? {} });
+          return;
+        }
+        // wbgetentities follows the redirect, as full lookups always did.
+        const resolved = await this.entities([id], 'claims', [property]);
+        if (resolved.failed.has(id)) lookup.failed.add(id);
+        else lookup.found.set(id, resolved.found.get(id) ?? { id });
       } catch (error) {
         if (!(error instanceof WikidataUnavailableError)) throw error;
         lookup.failed.add(id);

@@ -19,7 +19,7 @@ import { mentionExcerpts } from '../src/main/pipeline/mentions';
 import type { Chapter } from '../src/shared/book';
 import { buildEpub } from './fixtures/build-epub';
 import { fakeModel } from './fixtures/faux-model';
-import { wikidataServer } from './fixtures/wikidata-server';
+import { wikidataServer, wikidataRecords } from './fixtures/wikidata-server';
 import { fauxAssistantMessage, type Context } from '@earendil-works/pi-ai';
 import entities from './fixtures/wikidata-entities.json';
 import search from './fixtures/wikidata-search.json';
@@ -620,6 +620,41 @@ test('batches entity lookups at 50 ids and fails only the searches a failed look
     } finally {
       isolated.close();
     }
+  } finally {
+    repo.close();
+  }
+});
+test('follows a redirected state the way full entity lookups did', async () => {
+  const repo = openRepository(':memory:');
+  const server = wikidataServer(
+    { 'zh:纸湾': ['Q64'] },
+    {
+      ...wikidataRecords,
+      Q148500: {
+        id: 'Q148500',
+        labels: { zh: { value: '合成国乙' } },
+        claims: {
+          P36: [{ mainsnak: { datavalue: { value: { id: 'Q900002' } } } }],
+        },
+      },
+    },
+    { Q148499: 'Q148500' },
+  );
+  try {
+    const [found] = await new WikidataClient(
+      repo,
+      server.fetcher,
+      async () => {},
+    ).searchMany([{ surface: '纸湾', original: '' }]);
+    expect(Array.isArray(found) && found[0]).toMatchObject({
+      qid: 'Q64',
+      country: '合成国乙',
+      capital: { name: 'Fixture Capital B', lat: 41.9, lon: 12.5 },
+    });
+    // One refusal, then a single-entity lookup; no retries.
+    expect(
+      server.log.filter((x) => x.ids.includes('Q148499')).map((x) => x.action),
+    ).toEqual(['wbgetentities', 'wbgetclaims', 'wbgetentities']);
   } finally {
     repo.close();
   }

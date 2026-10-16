@@ -13,6 +13,8 @@ import { parseEpub } from '../src/main/content/epub';
 import { WikidataClient, USER_AGENT } from '../src/main/wikidata/client';
 import { buildEpub } from './fixtures/build-epub';
 import { fakeModel } from './fixtures/faux-model';
+import { wikidataServer } from './fixtures/wikidata-server';
+import { fauxAssistantMessage } from '@earendil-works/pi-ai';
 import entities from './fixtures/wikidata-entities.json';
 import search from './fixtures/wikidata-search.json';
 import search2 from './fixtures/wikidata-search-2.json';
@@ -443,6 +445,80 @@ test('never stores or links entities the chapter text does not name, and skips c
         .rawEntities(book.id)
         .some((e) => e.name === '雾岛' || e.aliases.includes('雾岛')),
     ).toBe(false);
+  } finally {
+    repo.close();
+  }
+});
+// Three entities over two chapters: one needs the model to choose, one has a
+// single plausible candidate, and one has none. Candidates share states.
+const linkSearches = {
+  'zh:纸湾': ['Q64'],
+  'en:Berlin': ['Q64', 'Q84'],
+  'zh:山坡': ['Q84'],
+  'en:London': ['Q84'],
+  'zh:阿林': ['Q64', 'Q404404'],
+};
+const linkExtractions = [
+  JSON.stringify({
+    entities: [
+      raw,
+      {
+        ...raw,
+        surface: '阿林',
+        type: 'person',
+        original_name_guess: '',
+        aliases_in_text: [],
+        note: 'PRIVATE-PERSON-NOTE',
+      },
+    ],
+  }),
+  JSON.stringify({
+    entities: [
+      {
+        ...raw,
+        surface: '山坡',
+        original_name_guess: 'London',
+        aliases_in_text: [],
+        note: 'PRIVATE-SLOPE-NOTE',
+      },
+    ],
+  }),
+];
+test('links several entities with unchanged results', async () => {
+  const repo = openRepository(':memory:');
+  const book = await input();
+  const server = wikidataServer(linkSearches);
+  const prompts: string[] = [];
+  const model = fakeModel([
+    ...linkExtractions,
+    (context) => {
+      prompts.push(JSON.stringify(context));
+      return fauxAssistantMessage(
+        JSON.stringify({ qid: 'Q64', confidence: 0.95 }),
+      );
+    },
+  ]);
+  try {
+    const report = await runPipeline(
+      repo,
+      book,
+      model.complete,
+      new WikidataClient(repo, server.fetcher, async () => {}),
+      { limit: 2 },
+    );
+    expect(report.linked).toBe(2);
+    expect(prompts).toHaveLength(1);
+    const summary = repo
+      .entities(book.id)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entity) => ({
+        name: entity.name,
+        status: entity.status,
+        confidence: entity.confidence,
+        linked: entity.linked?.qid,
+        candidates: entity.candidates,
+      }));
+    expect(summary).toMatchSnapshot();
   } finally {
     repo.close();
   }

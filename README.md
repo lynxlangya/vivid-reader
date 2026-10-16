@@ -18,7 +18,7 @@
 
 ## 当前状态
 
-🚧 **设计阶段**，尚无可运行代码。
+🚧 **设计阶段**，尚无可运行代码。设计与实施计划已定，即将进入 M0。
 
 ## 文档
 
@@ -28,11 +28,13 @@
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 讨论纪要与决策记录（含理由） |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 技术架构、数据模型、预处理流水线、防剧透机制 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑与验收标准 |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | MVP 实施计划：依赖、技术方案、开发顺序 |
 | [DESIGN.md](DESIGN.md) | 视觉设计系统（供 OpenDesign 等设计 Agent 使用） |
+| [prototype/vivid-reader-prototype-v2.html](prototype/vivid-reader-prototype-v2.html) | 高保真原型 v2（视觉基准） |
 
 ## 技术栈（计划）
 
-Electron · React · TypeScript · [Pi](https://github.com/earendil-works/pi)（`pi-ai` + `pi-agent-core`）· foliate-js · MapLibre GL + PMTiles · SQLite · Wikidata
+Electron · React · TypeScript · [Pi](https://github.com/earendil-works/pi)（`pi-ai` + `pi-agent-core`）· foliate-js · d3-geo + Natural Earth · SQLite（`node:sqlite`）· Wikidata
 
 模型：DeepSeek（文字）、OpenAI GPT Image（图像，v0.2），均可通过 Pi 替换为其他提供商。
 

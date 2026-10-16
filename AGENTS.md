@@ -12,12 +12,15 @@
 |---|---|
 | [README.md](README.md) | 项目入口、MVP 概览、当前状态与文档导航 |
 | [docs/VISION.md](docs/VISION.md) | 产品起源、核心体验、产品原则与使用者 |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | D-01～D-28 决策及理由；后续决策的记录入口 |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | D-01～D-36 决策及理由；后续决策的记录入口 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 进程职责、技术选型、位置与边界、流水线、工具、数据模型与目录规划 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | M0～M4 里程碑、验收标准与后续版本范围 |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | MVP 依赖与精确版本、工程约定、关键技术方案、G0～G5 开发顺序与验收 |
+| [docs/codex-goals.md](docs/codex-goals.md) | 交给执行 Agent 的分步 `/goal` prompt |
 | [DESIGN.md](DESIGN.md) | OpenDesign 格式的视觉系统、组件、交互、可访问性与禁忌 |
+| [prototype/vivid-reader-prototype-v2.html](prototype/vivid-reader-prototype-v2.html) | 已定的视觉基准原型；配套规范为 `prototype/v2-folio-atlas/DESIGN.md` |
 
-产品与技术设计放在 `docs/`，视觉规范以 `DESIGN.md` 为依据。
+产品与技术设计放在 `docs/`，视觉规范以 `DESIGN.md` 为依据；界面实现以 v2 原型及其规范为准，两者冲突时以 v2 为准。
 新决策追加到 `docs/DECISIONS.md` 末尾，沿用 `D-xx` 编号；不得删除旧条目，推翻时标注“已被 D-xx 取代”。
 文档冲突或未定项见末尾“待确认”，不得自行视为已定方案。
 
@@ -26,15 +29,15 @@
 - Electron、React、TypeScript；Electron 主进程的 Node.js 必须 ≥ 22。
 - Pi 仅使用 `@earendil-works/pi-ai` 和 `@earendil-works/pi-agent-core`；**禁止引入 `pi-coding-agent`**。
 - foliate-js 渲染 EPUB，位置使用 EPUB CFI；通过薄 `Position` 接口封装其 CFI 比较能力。
-- MapLibre GL JS + PMTiles 提供真实底图；SQLite 存储本地数据；Wikidata 用于实体链接，GeoNames 可补充。
+- 旁注卡舆图用 d3-geo 绘制 Natural Earth 数据（SVG）；可缩放大图用 MapLibre GL JS + PMTiles，属于 M4 可选项（D-30）。Wikidata 用于实体链接，GeoNames 可补充。
+- SQLite 使用 Node 内置的 `node:sqlite`，只在 `src/main/db/` 内部使用（D-29）。
 - 文字模型使用云端 DeepSeek；OpenAI GPT Image 场景示意属于 v0.2。
-- electron-vite、better-sqlite3 仍是候选；`pi-durable` 仍待评估，不作为当前已选依赖。
+- 构建用 electron-vite；MVP 不用 better-sqlite3、`@electron/rebuild` 和 `pi-durable`（D-29、D-36）。各依赖的精确版本与理由见 `docs/IMPLEMENTATION.md` 第 1 节。
 
 ## 常用命令
 
-**待 M0 初始化后补充**。目前没有代码或可运行脚本。
-预期命令名为 `install` / `dev` / `build` / `test` / `lint`，分别用于安装依赖、开发、构建、测试和静态检查。
-这些只是占位名称；包管理器、具体脚本及调用方式尚未确定，不要编造命令。
+**待 G0 完成后补充**。目前没有代码或可运行脚本。
+包管理器为 npm；规划的脚本名见 `docs/IMPLEMENTATION.md` 第 2.1 节。G0 完成前这些脚本并不存在，不要声称运行过它们。
 
 ## 代码结构
 
@@ -102,9 +105,6 @@
 ## 待确认
 
 - **族群图像例外**：D-03 保留“若使用 AI，必须标注”的例外，与本次要求的族群外貌禁生成规则不一致；旧决策如何修订待确认，不能据此启用例外。
-- **章节解析的进程边界**：ARCHITECTURE 第 1 节要求书本内容访问全在主进程，第 4 节却计划让隐藏渲染进程加载章节、生成偏移 ↔ CFI 映射；方案待 M0 确认。
-- **全书预处理的权限边界**：ARCHITECTURE 第 3.2 节要求所有接触书本内容的操作受已读边界约束，第 4 节计划导入时处理全书；预处理是否例外、如何隔离后文信息尚未明确。
-- **释义缓存与边界调整**：ARCHITECTURE 第 5 节缓存键仅为（实体，章节）；边界推进、手动调整时的复用和失效规则未定义。第 3.2 节“只增不减”与手动调整的关系、跳读停留阈值也待确认。
-- **MVP 功能归属**：README 的 MVP 包含逐步生长的知识图谱；ARCHITECTURE 第 5 节及 DESIGN 第 5.2 节包含真实画像，ROADMAP 则将知识图谱和真实人物画像列为 v0.2，足迹地图仅注明可提前；具体范围需对齐。
-- **技术验证与选型**：electron-vite、better-sqlite3、pi-durable 尚未定案；iframe 标注性能、偏移 ↔ CFI 映射、Wikidata 中文链接准确率、底图中文覆盖及离线体积，按 ARCHITECTURE 第 2、10 节及 ROADMAP 的 M0 / M1 验证。
+- **MVP 功能归属**：README 的 MVP 包含逐步生长的知识图谱，ROADMAP 将其列为 v0.2，足迹地图仅注明可提前；具体范围需对齐。（真实画像已由 D-35 定为 v0.2。）
+- **技术验证**：标注注入方式与性能、偏移 ↔ CFI 往返（D-31）在 G1 验证；Wikidata 中文链接准确率在 G2 验证；底图中文覆盖与离线体积只涉及 M4 可选大图。结论写入 `docs/spikes/`，未验证前不得视为已通过。
 - **衍生数据分享**：D-22 与 ARCHITECTURE 第 10 节仍未决定实体表、纠错记录能否及如何分享；不得因此放宽书籍内容与缓存禁止入库的规则。

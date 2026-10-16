@@ -25,10 +25,11 @@ const SEARCHES_IN_FLIGHT = 3;
 const LOOKUPS_IN_FLIGHT = 2;
 // The claims a candidate reads; cached entities keep nothing else.
 const CANDIDATE_CLAIMS = ['P17', 'P18', 'P31', 'P569', 'P570', 'P625', 'P2046'];
-type Claims = Record<
-  string,
-  { mainsnak?: { datavalue?: { value: unknown } } }[]
->;
+interface Statement {
+  rank?: 'preferred' | 'normal' | 'deprecated';
+  mainsnak?: { datavalue?: { value: unknown } };
+}
+type Claims = Record<string, Statement[]>;
 interface WikiEntity {
   id: string;
   labels?: Record<string, { value: string }>;
@@ -45,11 +46,23 @@ interface Lookup {
   found: Map<string, WikiEntity>;
   failed: Set<string>;
 }
+// Wikidata's best statements: the preferred ones, else the normal ones. A
+// deprecated statement is never read; one without a rank counts as normal.
+function best(statements: Statement[] = []) {
+  const live = statements.filter((x) => x.rank !== 'deprecated');
+  const preferred = live.filter((x) => x.rank === 'preferred');
+  return preferred.length ? preferred : live;
+}
+// The first value among the best statements. Best statements of no value or
+// an unknown one still outrank the rest, so nothing is read then.
 const claim = <T>(
   entity: Pick<WikiEntity, 'claims'> | undefined,
   property: string,
-) =>
-  entity?.claims?.[property]?.[0]?.mainsnak?.datavalue?.value as T | undefined;
+) => {
+  const statements = best(entity?.claims?.[property]);
+  const valued = statements.find((x) => x.mainsnak?.datavalue);
+  return valued?.mainsnak?.datavalue?.value as T | undefined;
+};
 const itemId = (entity: WikiEntity | undefined, property: string) =>
   claim<{ id: string }>(entity, property)?.id;
 function trim(entity: WikiEntity, properties: string[]): WikiEntity {
@@ -57,7 +70,8 @@ function trim(entity: WikiEntity, properties: string[]): WikiEntity {
   const claims: Claims = {};
   for (const property of properties)
     if (entity.claims[property])
-      claims[property] = entity.claims[property].map(({ mainsnak }) => ({
+      claims[property] = entity.claims[property].map(({ rank, mainsnak }) => ({
+        rank,
         mainsnak: mainsnak?.datavalue
           ? { datavalue: { value: mainsnak.datavalue.value } }
           : {},
@@ -134,7 +148,9 @@ export class WikidataClient {
     props: string,
     properties: string[] = [],
   ): Promise<Lookup> {
-    const key = (id: string) => `entity:${props}:${properties.join(',')}:${id}`;
+    // Versioned by what trimmed entries keep; v2 added statement ranks.
+    const key = (id: string) =>
+      `entity-v2:${props}:${properties.join(',')}:${id}`;
     const lookup: Lookup = { found: new Map(), failed: new Set() };
     const missing: string[] = [];
     for (const id of new Set(ids)) {
@@ -326,10 +342,13 @@ export class WikidataClient {
       : area?.unit.endsWith('/Q25343')
         ? Number(area.amount) / 1e6
         : undefined;
-    const region = (entity.claims?.P31 ?? []).some((x) =>
-      ['Q82794', 'Q618123', 'Q6256', 'Q5107'].includes(
-        (x.mainsnak?.datavalue?.value as { id?: string })?.id ?? '',
-      ),
+    // Every class but deprecated ones: a lesser rank can still be true.
+    const types = (entity.claims?.P31 ?? []).flatMap((x) => {
+      const value = x.mainsnak?.datavalue?.value as { id?: string } | undefined;
+      return x.rank !== 'deprecated' && value?.id ? [value.id] : [];
+    });
+    const region = types.some((type) =>
+      ['Q82794', 'Q618123', 'Q6256', 'Q5107'].includes(type),
     );
     const radiusKm =
       region && squareKm && squareKm > 0
@@ -344,11 +363,7 @@ export class WikidataClient {
       description:
         entity.descriptions?.zh?.value ?? entity.descriptions?.en?.value ?? '',
       ...(valid ? { lat, lon } : {}),
-      types: (entity.claims?.P31 ?? []).flatMap((x) => {
-        const value = x.mainsnak?.datavalue?.value as
-          { id?: string } | undefined;
-        return value?.id ? [value.id] : [];
-      }),
+      types,
       country: country
         ? (countries.found.get(country)?.labels?.zh?.value ?? country)
         : undefined,

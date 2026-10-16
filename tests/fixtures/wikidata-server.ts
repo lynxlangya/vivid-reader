@@ -1,8 +1,13 @@
 import { vi } from 'vitest';
 import entities from './wikidata-entities.json';
+import countries from './wikidata-countries.json';
+type Rank = 'preferred' | 'normal' | 'deprecated';
 type Claims = Record<
   string,
-  { mainsnak?: { datavalue?: { value: unknown } } }[]
+  {
+    rank?: Rank;
+    mainsnak?: { snaktype?: string; datavalue?: { value: unknown } };
+  }[]
 >;
 interface FixtureRecord {
   id: string;
@@ -10,28 +15,40 @@ interface FixtureRecord {
   descriptions?: Record<string, { value: string }>;
   claims?: Claims;
 }
-const claim = (value: unknown) => ({ mainsnak: { datavalue: { value } } });
-const item = (id: string) => claim({ 'entity-type': 'item', id });
-const point = (latitude: number, longitude: number) =>
-  claim({ latitude, longitude });
-// Recorded candidates plus synthetic states and capitals for their first P17
-// claims. Each record lists more than one statement where order matters.
+// Statements as Wikidata returns them, which always carry a rank.
+export const claim = (value: unknown, rank: Rank = 'normal') => ({
+  rank,
+  mainsnak: { snaktype: 'value', datavalue: { value } },
+});
+export const noValue = (rank: Rank = 'normal') => ({
+  rank,
+  mainsnak: { snaktype: 'novalue' },
+});
+export const item = (id: string, rank?: Rank) =>
+  claim({ 'entity-type': 'item', id }, rank);
+export const point = (latitude: number, longitude: number, rank?: Rank) =>
+  claim({ latitude, longitude }, rank);
+// Recorded candidates and the recorded labels of their preferred states, with
+// synthetic capitals. Reading the first statement, or a deprecated one, picks
+// a wrong capital or coordinate here, as the recorded P17 claims already do.
 export const wikidataRecords: Record<string, FixtureRecord> = {
   ...(entities.entities as Record<string, FixtureRecord>),
-  Q148499: {
-    id: 'Q148499',
-    labels: { zh: { value: '合成国甲' }, en: { value: 'Fixture State A' } },
-    claims: { P36: [item('Q900001'), item('Q900003')] },
+  Q183: {
+    id: 'Q183',
+    labels: countries.entities.Q183.labels,
+    claims: { P36: [item('Q900003'), item('Q900001', 'preferred')] },
   },
-  Q2277: {
-    id: 'Q2277',
-    labels: { en: { value: 'Fixture State B' } },
-    claims: { P36: [item('Q900002')] },
+  Q145: {
+    id: 'Q145',
+    labels: countries.entities.Q145.labels,
+    claims: { P36: [item('Q900003', 'deprecated'), item('Q900002')] },
   },
   Q900001: {
     id: 'Q900001',
     labels: { zh: { value: '合成都城甲' } },
-    claims: { P625: [point(52.4, 12.9), point(0, 0)] },
+    claims: {
+      P625: [point(0, 0, 'deprecated'), point(52.4, 12.9), point(0, 0)],
+    },
   },
   Q900002: {
     id: 'Q900002',

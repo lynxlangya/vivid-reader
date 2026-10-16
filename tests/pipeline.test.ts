@@ -19,7 +19,14 @@ import { mentionExcerpts } from '../src/main/pipeline/mentions';
 import type { Chapter } from '../src/shared/book';
 import { buildEpub } from './fixtures/build-epub';
 import { fakeModel } from './fixtures/faux-model';
-import { wikidataServer, wikidataRecords } from './fixtures/wikidata-server';
+import {
+  claim,
+  item,
+  noValue,
+  point,
+  wikidataServer,
+  wikidataRecords,
+} from './fixtures/wikidata-server';
 import { fauxAssistantMessage, type Context } from '@earendil-works/pi-ai';
 import entities from './fixtures/wikidata-entities.json';
 import search from './fixtures/wikidata-search.json';
@@ -513,7 +520,8 @@ test('links several entities with unchanged results, batched lookups and bounded
       { limit: 2 },
     );
     expect(report.linked).toBe(2);
-    // Written by the code before batching; the stored results must not move.
+    // Written by the code before batching, which these results match apart
+    // from the states: those follow statement ranks since.
     const summary = repo
       .entities(book.id)
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -599,7 +607,7 @@ test('batches entity lookups at 50 ids and fails only the searches a failed look
     const isolated = openRepository(':memory:');
     const shared = wikidataServer(linkSearches);
     const failing = vi.fn<typeof fetch>(async (value, options) =>
-      new URL(String(value)).searchParams.get('entity') === 'Q2277'
+      new URL(String(value)).searchParams.get('entity') === 'Q145'
         ? new Response('', { status: 503 })
         : shared.fetcher(value, options),
     );
@@ -633,12 +641,10 @@ test('follows a redirected state the way full entity lookups did', async () => {
       Q148500: {
         id: 'Q148500',
         labels: { zh: { value: '合成国乙' } },
-        claims: {
-          P36: [{ mainsnak: { datavalue: { value: { id: 'Q900002' } } } }],
-        },
+        claims: { P36: [item('Q900001', 'deprecated'), item('Q900002')] },
       },
     },
-    { Q148499: 'Q148500' },
+    { Q183: 'Q148500' },
   );
   try {
     const [found] = await new WikidataClient(
@@ -653,8 +659,113 @@ test('follows a redirected state the way full entity lookups did', async () => {
     });
     // One refusal, then a single-entity lookup; no retries.
     expect(
-      server.log.filter((x) => x.ids.includes('Q148499')).map((x) => x.action),
+      server.log.filter((x) => x.ids.includes('Q183')).map((x) => x.action),
     ).toEqual(['wbgetentities', 'wbgetclaims', 'wbgetentities']);
+  } finally {
+    repo.close();
+  }
+});
+test('reads the best-ranked statement of each claim and never a deprecated one', async () => {
+  const repo = openRepository(':memory:');
+  const km2 = (amount: string) => ({
+    amount,
+    unit: 'http://www.wikidata.org/entity/Q712226',
+  });
+  const time = (year: number) => ({ time: `+${year}-00-00T00:00:00Z` });
+  const server = wikidataServer(
+    { 'zh:甲地': ['Q900101'], 'zh:乙人': ['Q900102'] },
+    {
+      Q900101: {
+        id: 'Q900101',
+        labels: { zh: { value: '合成地甲' } },
+        claims: {
+          P17: [item('Q900111'), item('Q900112', 'preferred')],
+          P31: [
+            item('Q5', 'deprecated'),
+            item('Q82794'),
+            item('Q515', 'preferred'),
+          ],
+          P625: [point(0, 0, 'deprecated'), point(10, 20), point(30, 40)],
+          // A statement without a rank counts as normal.
+          P18: [
+            claim('Old.jpg', 'deprecated'),
+            { mainsnak: { datavalue: { value: 'New.jpg' } } },
+          ],
+          P2046: [
+            claim(km2('+100'), 'deprecated'),
+            claim(km2('+400'), 'preferred'),
+          ],
+        },
+      },
+      Q900102: {
+        id: 'Q900102',
+        labels: { zh: { value: '合成人乙' } },
+        claims: {
+          P17: [item('Q900111', 'deprecated')],
+          P31: [item('Q5')],
+          P625: [point(10, 20, 'deprecated')],
+          P569: [claim(time(1800)), claim(time(1801), 'preferred')],
+          P570: [noValue('preferred'), claim(time(1850))],
+        },
+      },
+      // The preferred answer is that this state has no capital.
+      Q900112: {
+        id: 'Q900112',
+        labels: { zh: { value: '合成国丙' } },
+        claims: { P36: [noValue('preferred'), item('Q900121')] },
+      },
+    },
+  );
+  const queries = [
+    { surface: '甲地', original: '' },
+    { surface: '乙人', original: '' },
+  ];
+  // An entry trimmed before ranks were kept, under the key it had then.
+  repo.cachePut(
+    'entity:labels|descriptions|claims:P17,P18,P31,P569,P570,P625,P2046:Q900101',
+    {
+      id: 'Q900101',
+      claims: { P17: [{ mainsnak: item('Q900111').mainsnak }] },
+    },
+  );
+  try {
+    const client = new WikidataClient(repo, server.fetcher, async () => {});
+    const found = await client.searchMany(queries);
+    const [place, person] = found.map((x) =>
+      Array.isArray(x) ? x[0] : undefined,
+    );
+    expect(place).toMatchObject({
+      qid: 'Q900101',
+      country: '合成国丙',
+      lat: 10,
+      lon: 20,
+      types: ['Q82794', 'Q515'],
+      image: 'New.jpg',
+      radiusKm: expect.closeTo(Math.sqrt(400 / Math.PI)),
+    });
+    expect(person).toMatchObject({
+      qid: 'Q900102',
+      types: ['Q5'],
+      birth: time(1801).time,
+    });
+    // A preferred "no value" outranks the rest, and deprecated statements
+    // alone leave nothing to read.
+    expect([
+      place?.capital,
+      person?.death,
+      person?.country,
+      person?.lat,
+    ]).toEqual([undefined, undefined, undefined, undefined]);
+    // Neither a lesser or deprecated state nor a capital behind a preferred
+    // "no value" is fetched, and the old trimmed entry is fetched afresh.
+    const asked = server.log.flatMap((x) => x.ids);
+    expect(asked).not.toContain('Q900111');
+    expect(asked).not.toContain('Q900121');
+    expect(asked).toContain('Q900101');
+    // Cached entries keep their ranks, so the same searches read the same.
+    const requests = server.log.length;
+    expect(await client.searchMany(queries)).toEqual(found);
+    expect(server.log.length).toBe(requests);
   } finally {
     repo.close();
   }

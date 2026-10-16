@@ -296,3 +296,37 @@ test('every real page turn onto text is adjacent, and a stale next jump never ad
     }
   }
 });
+test('leaving the reader while a book is still opening never crashes the window', async () => {
+  const data = await mkdtemp(join(tmpdir(), 'vivid-reader-remount-'));
+  await seedReading(data);
+  const app = await launch(data);
+  try {
+    const page = await app.firstWindow();
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const reader = page.locator('.reader-host');
+    await expect(reader).toHaveAttribute('aria-busy', 'false');
+    const toggle = page.locator('header.app-actions > button').first();
+    // Sweep the delay so some unmounts land between foliate's open and init.
+    for (let delay = 0; delay <= 200; delay += 10) {
+      await toggle.click();
+      await expect(reader).toHaveCount(0);
+      await toggle.click();
+      await page.waitForTimeout(delay);
+      await toggle.click();
+      await expect(reader).toHaveCount(0);
+      await toggle.click();
+    }
+    await expect(reader).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.pager')).toHaveAttribute(
+      'data-cfi',
+      /^epubcfi/,
+    );
+    // Views parked mid-load are released once their loader finishes.
+    await expect(page.locator('foliate-view')).toHaveCount(1);
+    await expect(page.locator('[data-parked]')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await app.close();
+  }
+});

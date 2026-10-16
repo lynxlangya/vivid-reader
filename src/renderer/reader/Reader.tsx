@@ -1,11 +1,23 @@
 import type { Preferences } from '../../shared/settings';
 import type { SelectionRange } from '../../shared/companion';
 import type { Box } from '../glimpse/layout';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { OpenBook } from '../../shared/book';
 import type { ReaderState, Navigation } from '../../shared/reading';
 import { makeView, type FoliateView, type ReadingLocation } from './engine';
 import { injectMarks, markGeometry, type MarkHit } from './marks';
+// Moves a still-loading view offscreen without reloading its iframe, so foliate
+// can finish laying it out and be closed normally afterwards.
+function park(view: HTMLElement) {
+  const { width, height } = view.getBoundingClientRect();
+  const holder = document.createElement('div');
+  holder.dataset.parked = '';
+  holder.inert = true;
+  holder.setAttribute('aria-hidden', 'true');
+  holder.style.cssText = `position:fixed;top:0;left:${-width - 100}px;width:${width}px;height:${height}px;visibility:hidden;pointer-events:none;overflow:hidden`;
+  document.body.append(holder);
+  holder.moveBefore(view, null);
+}
 interface Props {
   book: OpenBook;
   state: ReaderState | null;
@@ -30,6 +42,7 @@ export function Reader({
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
+  const loader = useRef<{ view: FoliateView; loading: boolean } | null>(null);
   const [toc, setToc] = useState(false);
   const [markMode, setMarkMode] = useState(false);
   const markNav = useRef<HTMLElement>(null);
@@ -187,6 +200,17 @@ export function Reader({
     };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('keydown', key);
+    // foliate cannot close while open/init runs: its paginator has no inner
+    // view until a section shows, and pending work still reads it. The loader
+    // releases the view itself if the reader unmounted meanwhile.
+    const load = { view, loading: true };
+    loader.current = load;
+    const release = () => {
+      const parent = view.parentElement;
+      if (view.renderer?.getContents().length) view.close();
+      view.remove();
+      if (parent?.dataset.parked !== undefined) parent.remove();
+    };
     void (async () => {
       try {
         await view.open(book.url);
@@ -209,7 +233,10 @@ export function Reader({
         );
         if (!disposed) setReady(true);
       } catch {
-        setError('这本 EPUB 暂时无法打开');
+        if (!disposed) setError('这本 EPUB 暂时无法打开');
+      } finally {
+        load.loading = false;
+        if (disposed) release();
       }
     })();
     return () => {
@@ -219,10 +246,17 @@ export function Reader({
       window.removeEventListener('keydown', key);
       markCleanup.forEach((fn) => fn());
       markCleanup.clear();
-      if (view.renderer) view.close();
-      view.remove();
+      if (!load.loading) release();
     };
   }, [book]);
+  // Layout cleanup runs before React detaches the host; a detached iframe
+  // would lose its document while foliate is still loading it.
+  useLayoutEffect(
+    () => () => {
+      if (loader.current?.loading) park(loader.current.view);
+    },
+    [book],
+  );
   return (
     <>
       <nav className="reader-actions">

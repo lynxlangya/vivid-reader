@@ -1,0 +1,13 @@
+node_modules/
+out/
+dist/
+release/
+prototype/
+src/renderer/vendor/
+package-lock.json
+test-results/
+playwright-report/
+# Preserve the existing documentation style.
+**/*.md
+!docs/dev-log.md
+!docs/spikes/*.md

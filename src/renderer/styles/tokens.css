@@ -1,0 +1,99 @@
+:root {
+  --paper: #f6f3ec;
+  --silk: #fbfaf6;
+  --sand: #efebe2;
+  --sand-deep: #e9e4d8;
+  --border: #e2dccd;
+  --border-soft: #eae5d8;
+  --ink: #1f1d1a;
+  --ink-soft: #4a4640;
+  --smoke: #6b675f;
+  --faint: #9a958b;
+  --accent: #2e6b78;
+  --accent-tint: #e2e9e7;
+  --accent-deep: #255863;
+  --verm: #a8432f; /* Reserved for the read boundary (D-26). */
+  --c-place: #2e6b78;
+  --t-place: #e2e9e7;
+  --m-place: #88a8ac;
+  --c-person: #8f5530;
+  --t-person: #eee6de;
+  --m-person: #bd9c85;
+  --c-people: #7d5f12;
+  --t-people: #ece7db;
+  --m-people: #b3a274;
+  --c-species: #476e32;
+  --t-species: #e5e9de;
+  --m-species: #96aa86;
+  --c-concept: #9b3a4a;
+  --t-concept: #efe3e1;
+  --m-concept: #c48d93;
+  --map-land: #efeae0;
+  --map-water: #d9e2e1;
+  --map-border: #cfc6b4;
+  --map-coast: #c9c0ae;
+  --map-grat: #d3ccbd;
+  --map-label: #4a4640;
+  --map-sea-label: #6e8a8c;
+  --shell: #e9e4d8;
+  --shell-ink: #4a4640;
+  --shell-line: #d8d1c1;
+  --tl-red: #ff5f57;
+  --tl-yellow: #febc2e;
+  --tl-green: #28c840;
+  --sh-2: 0 8px 28px rgba(31, 29, 26, 0.12), 0 0 0 1px rgba(31, 29, 26, 0.06);
+  --sh-win: 0 24px 70px rgba(31, 29, 26, 0.2), 0 0 0 1px rgba(31, 29, 26, 0.08);
+  --font-book:
+    'Source Han Serif SC', 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  --font-kai: 'LXGW WenKai', 'Kaiti SC', 'STKaiti', serif;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue',
+    sans-serif;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  /* Swap book and note voices when the reading font changes (D-27). */
+  --voice-book: var(--font-book);
+  --voice-note: var(--font-kai);
+}
+.night {
+  --paper: #1a1916;
+  --silk: #24221e;
+  --sand: #2c2a25;
+  --sand-deep: #33302a;
+  --border: #3a3731;
+  --border-soft: #33302a;
+  --ink: #e8e3d8;
+  --ink-soft: #b8b1a4;
+  --smoke: #9a9488;
+  --faint: #6e685d;
+  --accent: #7fb4bd;
+  --accent-tint: #2a3639;
+  --accent-deep: #9ec6cd;
+  --verm: #d9826a;
+  --c-place: #7fb4bd;
+  --t-place: #333937;
+  --m-place: #526e72;
+  --c-person: #d49c77;
+  --t-person: #40362c;
+  --m-person: #80614b;
+  --c-people: #d2b260;
+  --t-people: #403929;
+  --m-people: #7f6d3f;
+  --c-species: #99bd85;
+  --t-species: #373b2e;
+  --m-species: #607353;
+  --c-concept: #db8c97;
+  --t-concept: #413331;
+  --m-concept: #84585d;
+  --map-land: #26241f;
+  --map-water: #1c2224;
+  --map-border: #45413a;
+  --map-coast: #3e3a34;
+  --map-grat: #34312b;
+  --map-label: #b8b1a4;
+  --map-sea-label: #6f8689;
+  --sh-2: 0 8px 28px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+.voice-swap {
+  --voice-book: var(--font-kai);
+  --voice-note: var(--font-book);
+}

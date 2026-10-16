@@ -36,8 +36,19 @@
 
 ## 常用命令
 
-**待 G0 完成后补充**。目前没有代码或可运行脚本。
-包管理器为 npm；规划的脚本名见 `docs/IMPLEMENTATION.md` 第 2.1 节。G0 完成前这些脚本并不存在，不要声称运行过它们。
+| 命令 | 内容 |
+|---|---|
+| `npm run dev` | electron-vite 开发模式 |
+| `npm run build` | 三端构建 |
+| `npm run typecheck` | Node 与 Web strict 类型检查 |
+| `npm run lint` | ESLint 与 Prettier |
+| `npm test` | 无密钥单元测试 |
+| `npm run test:live` | 真实模型测试，无密钥自动跳过 |
+| `npm run test:e2e` | 构建后启动 Electron 验收 |
+| `npm run check` | 类型、格式、单元测试、仓库卫生 |
+| `npm run audit:repo` | 禁止书籍、数据库、瓦片及密钥日志入库 |
+
+包管理器为 npm，依赖锁定精确版本。
 
 ## 代码结构
 

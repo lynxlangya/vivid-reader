@@ -1,0 +1,120 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.page {
+  height: 100vh;
+  position: relative;
+  padding-top: 84px;
+  overflow: hidden;
+}
+.col {
+  width: 680px;
+  margin-left: max(80px, calc((100vw - 800px) / 2));
+}
+.spine {
+  position: absolute;
+  left: max(20px, calc((100vw - 800px) / 2 - 66px));
+  top: 88px;
+  writing-mode: vertical-rl;
+  font: 12px var(--font-book);
+  letter-spacing: 0.32em;
+  color: var(--smoke);
+}
+.ch-no {
+  font: 15px var(--voice-book);
+  letter-spacing: 0.35em;
+  color: var(--smoke);
+  margin: 0 0 16px;
+}
+.ch-title {
+  font: 600 32px/1.35 var(--voice-book);
+  margin: 0 0 36px;
+}
+.para {
+  font: 19px/1.85 var(--voice-book);
+  text-indent: 2em;
+  text-align: justify;
+  text-spacing-trim: normal;
+  text-autospace: normal;
+  margin: 0 0 0.6em;
+}
+.pager {
+  position: absolute;
+  bottom: 24px;
+  width: 680px;
+  left: max(80px, calc((100vw - 800px) / 2));
+  text-align: center;
+  font: 12px var(--font-book);
+  letter-spacing: 0.2em;
+  color: var(--smoke);
+}
+.progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border);
+}
+.progress i {
+  position: absolute;
+}
+.read {
+  left: 0;
+  width: 22%;
+  height: 1px;
+  background: var(--ink-soft);
+}
+.cur {
+  left: 10%;
+  top: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.bound {
+  left: 22%;
+  top: -7px;
+  width: 1.5px;
+  height: 8px;
+  background: var(--verm);
+}
+.bound-lab {
+  position: absolute;
+  left: 22%;
+  bottom: 8px;
+  color: var(--verm);
+  font-size: 11px;
+  transform: translateX(-50%);
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.1s !important;
+    transition-duration: 0.1s !important;
+  }
+}

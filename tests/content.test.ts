@@ -86,3 +86,40 @@ test('locates aliases by text, avoids overlapping forms, and enforces first ment
     repo.close();
   }
 });
+
+test('cards and actual lookup tools never expose whole-book original-name guesses', async () => {
+  const { readingTools } = await import('../src/main/agent/tools');
+  const { repo, gateway, entities } = await contentFixture();
+  try {
+    const entity = entities[0];
+    const secret = 'SENTINEL-AFTER-BOUNDARY-4';
+    repo.putEntity({ ...entity, original: secret });
+    const mark = gateway.marks(0).find((item) => item.entityId === entity.id)!;
+    const lookup = readingTools(gateway).find(
+      (tool) => tool.name === 'lookup_entity',
+    )!;
+    const result = await lookup.execute('lookup', { name: mark.name });
+    expect(
+      JSON.stringify([
+        gateway.card(mark.id),
+        gateway.lookup(mark.name),
+        result,
+      ]),
+    ).not.toContain(secret);
+    expect(gateway.card(mark.id)?.original).toBe('');
+    repo.putEntity({
+      ...entity,
+      original: secret,
+      linked: {
+        qid: 'Q64',
+        label: '公开地理测试点',
+        original: 'Berlin',
+        description: '公开地理测试点',
+        types: ['Q515'],
+      },
+    });
+    expect(gateway.card(mark.id)?.original).toBe('Berlin');
+  } finally {
+    repo.close();
+  }
+});

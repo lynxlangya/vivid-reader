@@ -235,6 +235,11 @@ export function registerIPC() {
       void gloss?.ensure(id);
     return state;
   });
+  handle('vivid:pause-reading', IdSchema, (payload) => {
+    if (!boundary || current?.id !== (payload as { id: string }).id) return;
+    clearTimeout(timer);
+    boundary = advanceBoundary(boundary, { type: 'pause' }).state;
+  });
   handle('vivid:reader-state', EmptySchema, () =>
     current ? gateway().state(current.currentCFI) : null,
   );

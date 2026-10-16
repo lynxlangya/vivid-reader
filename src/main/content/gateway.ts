@@ -33,6 +33,12 @@ export class ContentGateway {
     const chapter = [...chapters]
       .reverse()
       .find((item) => compareCFI(item.baseCFI, cfi) <= 0);
+    if (chapter && !chapter.text.length) {
+      const body = cfiAt(chapter, 0).slice(0, -1).replace(/:0$/, '');
+      if (cfi.startsWith(`${body}/`) || cfi === cfiAt(chapter, 0))
+        return { chapter: chapter.index, offset: 0, cfi: cfiAt(chapter, 0) };
+      throw new Error('Position is outside the chapter body');
+    }
     if (!chapter || compareCFI(cfi, cfiAt(chapter, chapter.text.length)) > 0)
       throw new Error('Position is outside the current book');
     let low = 0,
@@ -298,7 +304,7 @@ export class ContentGateway {
     return {
       id: mention.id,
       name: mention.surface,
-      original: entity.linked?.original ?? entity.original,
+      original: entity.linked?.original ?? '',
       type: entity.type,
       fact: entity.linked,
       footprint: { firstChapter: history[0].chapter, count: history.length },
@@ -353,6 +359,7 @@ export class ContentGateway {
         chapters.reduce((sum, c) => sum + c.text.length, 0),
     );
     for (const chapter of chapters) {
+      if (!chapter.text.length) continue;
       if (offset <= chapter.text.length) return cfiAt(chapter, offset);
       offset -= chapter.text.length;
     }

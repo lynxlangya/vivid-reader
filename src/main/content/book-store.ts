@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, copyFile, rename } from 'node:fs/promises';
-import { join, extname, resolve, relative, isAbsolute } from 'node:path';
+import { join, extname } from 'node:path';
 import { parseEpub } from './epub';
+import { assertOutsideRepository } from './repository-path';
 
 import { validateCFI } from '../../shared/cfi';
 export interface StoredBook {
@@ -22,10 +23,7 @@ export class BookStore {
   async import(path: string): Promise<StoredBook> {
     if (extname(path).toLowerCase() !== '.epub')
       throw new Error('Only EPUB is supported');
-    const repo = resolve(process.cwd());
-    const rel = relative(repo, resolve(path));
-    if (!rel.startsWith('..') && !isAbsolute(rel))
-      throw new Error('Keep test books outside the repository');
+    assertOutsideRepository(path, 'Keep test books outside the repository');
     const bytes = await readFile(path);
     parseEpub(bytes);
     const id = createHash('sha256').update(bytes).digest('hex');

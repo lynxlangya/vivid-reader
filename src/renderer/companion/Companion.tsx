@@ -11,12 +11,14 @@ export function Companion({
   allowed,
   onJump,
   request,
+  onRequestConsumed,
 }: {
   state: ReaderState | null;
   selection: SelectionRange | null;
   allowed: boolean;
   onJump: (cfi: string) => void;
   request?: { nonce: number; scope: 'selection' };
+  onRequestConsumed: (nonce: number) => void;
 }) {
   const [value, setValue] = useState(''),
     [update, setUpdate] = useState<CompanionUpdate>({
@@ -46,7 +48,9 @@ export function Companion({
       .ask({
         question: value,
         ...(scope ? { scope } : {}),
-        ...(selection ? { selection } : {}),
+        ...(selection
+          ? { selection: { start: selection.start, end: selection.end } }
+          : {}),
       })
       .catch(() =>
         setUpdate((prev) => ({
@@ -61,15 +65,18 @@ export function Companion({
   useEffect(() => {
     if (request && request.nonce !== requestRef.current) {
       requestRef.current = request.nonce;
+      onRequestConsumed(request.nonce);
       void window.vivid
         .ask({
           question: '',
           scope: request.scope,
-          ...(selection ? { selection } : {}),
+          ...(selection
+            ? { selection: { start: selection.start, end: selection.end } }
+            : {}),
         })
         .catch(() => {});
     }
-  }, [request, selection]);
+  }, [request, selection, onRequestConsumed]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [update]);

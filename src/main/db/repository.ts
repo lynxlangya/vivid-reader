@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve, relative, isAbsolute } from 'node:path';
+import { dirname } from 'node:path';
 import initialSQL from './migrations/001_initial.sql?raw';
 import canonicalSQL from './migrations/002_canonical.sql?raw';
 import type { Chapter } from '../../shared/book';
@@ -11,6 +11,7 @@ import type {
   ReviewEntity,
 } from '../../shared/entity';
 import { cfiAt } from '../content/epub';
+import { assertOutsideRepository } from '../content/repository-path';
 import type { ConversationMessage } from '../../shared/companion';
 import { randomUUID } from 'node:crypto';
 import type { Mention } from '../../shared/reading';
@@ -34,9 +35,7 @@ interface UsageRecord {
 type Row = Record<string, string | number | bigint | Uint8Array | null>;
 export function openRepository(path: string) {
   if (path !== ':memory:') {
-    const rel = relative(resolve(process.cwd()), resolve(path));
-    if (!rel.startsWith('..') && !isAbsolute(rel))
-      throw new Error('Database must be outside the repository');
+    assertOutsideRepository(path, 'Database must be outside the repository');
     mkdirSync(dirname(path), { recursive: true });
   }
   const db = new DatabaseSync(path);

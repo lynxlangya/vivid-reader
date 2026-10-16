@@ -4,12 +4,15 @@ import {
   type Page,
 } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 export async function launchIsolated(
   userData: string,
   extra: Record<string, string> = {},
+  cwd?: string,
 ) {
   const app = await electron.launch({
-    args: ['out/main/index.js'],
+    args: [resolve('out/main/index.js')],
+    ...(cwd ? { cwd } : {}),
     env: {
       ...process.env,
       DEEPSEEK_API_KEY: '',

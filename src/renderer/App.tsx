@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SelectionRange } from '../shared/companion';
 import { defaultPreferences, type Preferences } from '../shared/settings';
 import type { Box } from './glimpse/layout';
@@ -32,7 +32,7 @@ export function App() {
       (SelectionRange & { rect: Box }) | null
     >(null),
     [allowed, setAllowed] = useState(false),
-    [jump, setJump] = useState<string>(),
+    [jump, setJump] = useState<{ cfi: string; nonce: number }>(),
     [summaryRequest, setSummaryRequest] = useState<{
       nonce: number;
       scope: 'selection';
@@ -43,6 +43,15 @@ export function App() {
     [status, setStatus] = useState(''),
     [hit, setHit] = useState<MarkHit | null>(null),
     [pinned, setPinned] = useState(false);
+  const requestNonce = useRef(0);
+  const consumeSummary = useCallback((nonce: number) => {
+    setSummaryRequest((request) =>
+      request?.nonce === nonce ? undefined : request,
+    );
+  }, []);
+  const consumeJump = useCallback((nonce: number) => {
+    setJump((request) => (request?.nonce === nonce ? undefined : request));
+  }, []);
   const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
       undefined,
     ),
@@ -219,6 +228,7 @@ export function App() {
           onSelection={setSelection}
           preferences={preferences}
           jump={jump}
+          onJumpHandled={consumeJump}
           onHover={hover}
           onClick={(next) => {
             close();
@@ -282,9 +292,10 @@ export function App() {
               allowed={allowed}
               onJump={(cfi) => {
                 close();
-                setJump(cfi);
+                setJump({ cfi, nonce: ++requestNonce.current });
               }}
               request={summaryRequest}
+              onRequestConsumed={consumeSummary}
             />
           )}
           {selection && !settings && (
@@ -313,7 +324,10 @@ export function App() {
                 title={!allowed ? '这段在已读范围之后' : undefined}
                 onClick={() => {
                   setCompanion(true);
-                  setSummaryRequest({ nonce: Date.now(), scope: 'selection' });
+                  setSummaryRequest({
+                    nonce: ++requestNonce.current,
+                    scope: 'selection',
+                  });
                   close();
                 }}
               >

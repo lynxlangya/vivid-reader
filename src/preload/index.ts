@@ -9,6 +9,7 @@ const api: VividAPI = {
   hasApiKey: () => ipcRenderer.invoke('vivid:has-key', {}),
   clearApiKey: () => ipcRenderer.invoke('vivid:clear-key', {}),
   relocate: (cfi, mode) => ipcRenderer.invoke('vivid:relocate', { cfi, mode }),
+  pauseReading: (id) => ipcRenderer.invoke('vivid:pause-reading', { id }),
   readerState: () => ipcRenderer.invoke('vivid:reader-state', {}),
   setBoundary: (cfi) => ipcRenderer.invoke('vivid:boundary', { cfi }),
   card: (id) => ipcRenderer.invoke('vivid:card', { id }),

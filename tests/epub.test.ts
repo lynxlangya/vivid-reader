@@ -26,3 +26,41 @@ test('maps decoded XHTML text to stable CFI runs in the main process', async () 
   expect(() => cfiAt(c, c.text.length + 1)).toThrow();
   expect(() => cfiRangeAt(c, 4, 3)).toThrow();
 });
+
+test('image-only spine entries have structural positions and do not poison text sampling', async () => {
+  const { openRepository } = await import('../src/main/db/repository');
+  const { ContentGateway } = await import('../src/main/content/gateway');
+  const book = parseEpub(
+    await readFile(await buildEpub({ imageOnlyCover: true })),
+  );
+  const repo = openRepository(':memory:');
+  try {
+    const id = 'a'.repeat(64);
+    repo.putBook({ id, title: 'Synthetic', author: '', path: 'synthetic' });
+    book.chapters.forEach((chapter) => repo.putChapter(id, chapter));
+    const [cover, text] = repo.chapters(id);
+    expect(cover.text).toBe('');
+    const start = cfiAt(cover, 0);
+    expect(cfiRangeAt(cover, 0, 0)).toBe(start);
+    expect(compareCFI(start, cfiAt(text, 0))).toBeLessThan(0);
+    repo.saveProgress(id, start, start);
+    const gateway = new ContentGateway(repo, id);
+    expect(gateway.state().currentChapter).toBe(0);
+    expect(gateway.read(start, cfiAt(text, 10))).toEqual([]);
+    const imagePoint = start.replace(/:0\)$/, '/2)');
+    expect(gateway.position(imagePoint).cfi).toBe(start);
+    expect(() => gateway.position('epubcfi(/6/999!/4/2)')).toThrow();
+    repo.saveProgress(id, cfiAt(text, 0), cfiAt(text, 10));
+    expect(gateway.read(start, cfiAt(text, 20))[0].text).toBe(
+      text.text.slice(0, 10),
+    );
+    expect(gateway.fractionCFI(0)).toBe(cfiAt(text, 0));
+    expect(sampleOffsets(book)).toHaveLength(200);
+    expect(
+      sampleOffsets(book).every((sample) => sample.expected.length === 1),
+    ).toBe(true);
+    expect(sampleOffsets({ ...book, chapters: [cover] })).toEqual([]);
+  } finally {
+    repo.close();
+  }
+});

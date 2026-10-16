@@ -97,6 +97,7 @@ export interface VividAPI {
   markReview(entityId: string, correct: boolean): Promise<void>;
   relocate(cfi: string, mode: Navigation): Promise<ReaderState>;
   readerState(): Promise<ReaderState | null>;
+  pauseReading(id: string): Promise<void>;
   setBoundary(cfi: string): Promise<ReaderState>;
   card(id: string): Promise<CardData | null>;
   gloss(id: string, retry?: boolean): Promise<CardData | null>;

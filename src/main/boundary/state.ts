@@ -10,11 +10,17 @@ export interface BoundaryState {
 export type BoundaryEvent =
   | { type: 'relocate'; cfi: string; mode: Navigation; now: number }
   | { type: 'dwell'; now: number }
+  | { type: 'pause' }
   | { type: 'manual'; cfi: string };
 export function advanceBoundary(
   state: BoundaryState,
   event: BoundaryEvent,
 ): { state: BoundaryState; archive: boolean } {
+  if (event.type === 'pause')
+    return {
+      state: { currentCFI: state.currentCFI, boundaryCFI: state.boundaryCFI },
+      archive: false,
+    };
   if (event.type === 'manual') {
     const boundaryCFI = collapse(event.cfi, true);
     return {

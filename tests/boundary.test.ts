@@ -73,3 +73,19 @@ test('prev cancels pending dwell; manual movement archives only when rewinding',
   expect(rewind.archive).toBe(true);
   expect(rewind.state.pending).toBeUndefined();
 });
+
+test('leaving the reader cancels pending dwell without losing the current location', () => {
+  const next = advanceBoundary(state, {
+    type: 'relocate',
+    mode: 'next',
+    cfi: cfi(0, 20),
+    now: 0,
+  }).state;
+  const paused = advanceBoundary(next, { type: 'pause' }).state;
+  expect(paused.currentCFI).toBe(next.currentCFI);
+  expect(paused.pending).toBeUndefined();
+  expect(
+    advanceBoundary(paused, { type: 'dwell', now: DWELL_MS * 2 }).state
+      .boundaryCFI,
+  ).toBe(state.boundaryCFI);
+});

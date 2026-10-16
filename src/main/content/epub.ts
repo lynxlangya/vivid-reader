@@ -110,6 +110,8 @@ export function parseEpub(bytes: Uint8Array): ParsedBook {
 export function cfiAt(chapter: Chapter, offset: number): string {
   if (!Number.isInteger(offset) || offset < 0 || offset > chapter.text.length)
     throw new Error('Offset outside chapter');
+  if (!chapter.runs.length)
+    return CFI.joinIndir(chapter.baseCFI, `epubcfi(${chapter.bodyPath})`);
   const run =
     chapter.runs.find((x) => offset >= x.start && offset < x.end) ??
     (offset === chapter.text.length ? chapter.runs.at(-1) : undefined);
@@ -125,6 +127,7 @@ export function cfiRangeAt(
   end: number,
 ): string {
   if (end < start) throw new Error('Invalid text range');
+  if (start === end) return cfiAt(chapter, start);
   const local = (offset: number) =>
     unwrap(cfiAt(chapter, offset))
       .split('!')
@@ -133,10 +136,12 @@ export function cfiRangeAt(
   return `epubcfi(${unwrap(chapter.baseCFI)}!${chapter.bodyPath},${local(start)},${local(end)})`;
 }
 export function sampleOffsets(book: ParsedBook, count = 200) {
+  const chapters = book.chapters.filter((chapter) => chapter.text.length);
+  if (!chapters.length) return [];
   let seed = 7411;
   return Array.from({ length: count }, (_, i) => {
     seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const chapter = book.chapters[i % book.chapters.length];
+    const chapter = chapters[i % chapters.length];
     const offset = seed % chapter.text.length;
     return {
       cfi: cfiRangeAt(chapter, offset, offset + 1),

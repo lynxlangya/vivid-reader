@@ -1,5 +1,6 @@
 import { launchIsolated, capture } from './helpers';
 import { seedReading } from './seed';
+import { buildEpub } from '../fixtures/build-epub';
 import {
   test,
   expect,
@@ -154,6 +155,63 @@ test('roundtrips 200 offsets in the optional external EPUB without logging text'
     const page = await app.firstWindow();
     await importFile(app, page, path);
     expect(await roundtrip(page, sampleOffsets(parsed))).toBe(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('launching from root imports an image-only cover, preserves CFI mapping, and cancels dwell on the shelf', async () => {
+  const data = await mkdtemp(join(tmpdir(), 'vivid-reader-lifecycle-'));
+  const file = await buildEpub({ imageOnlyCover: true });
+  const parsed = parseEpub(await readFile(file));
+  const app = await launch(data, {}, '/');
+  try {
+    const page = await app.firstWindow();
+    await importFile(app, page, file);
+    expect(
+      (await page.evaluate(() => window.vivid.readerState()))?.currentChapter,
+    ).toBe(0);
+    expect(await roundtrip(page, sampleOffsets(parsed))).toBe(0);
+    const initial = (await page.evaluate(() => window.vivid.readerState()))!;
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.vivid.readerState()))
+            ?.currentChapter,
+      )
+      .toBe(1);
+    const saved = (await page.evaluate(() => window.vivid.readerState()))!
+      .currentCFI;
+    await page.getByRole('button', { name: '书架', exact: true }).click();
+    await expect(page.locator('.reader-host')).toHaveCount(0);
+    await page.waitForTimeout(5200);
+    const onShelf = (await page.evaluate(() => window.vivid.readerState()))!;
+    expect(onShelf.boundaryCFI).toBe(initial.boundaryCFI);
+    expect(onShelf.currentCFI).toBe(saved);
+    await page.getByRole('button', { name: '返回阅读', exact: true }).click();
+    await expect(page.locator('.reader-host')).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
+    await expect(page.locator('.pager')).toHaveAttribute('data-cfi', saved);
+    expect(
+      (await page.evaluate(() => window.vivid.readerState()))!.currentCFI,
+    ).toBe(saved);
+    expect(
+      (await page.evaluate(() => window.vivid.readerState()))!.boundaryCFI,
+    ).toBe(initial.boundaryCFI);
+    // Explicitly reading from a confirmed point must still advance after a fresh dwell.
+    await page.evaluate(() => window.vivid.setBoundaryFraction(0));
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await expect(page.locator('.pager')).not.toHaveAttribute('data-cfi', saved);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.vivid.readerState()))!.boundaryCFI,
+        { timeout: 10000 },
+      )
+      .not.toBe(cfiAt(parsed.chapters[1], 0));
   } finally {
     await app.close();
   }

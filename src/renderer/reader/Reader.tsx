@@ -12,7 +12,8 @@ interface Props {
   onState: (state: ReaderState) => void;
   onSelection: (selection: (SelectionRange & { rect: Box }) | null) => void;
   preferences: Preferences;
-  jump?: string;
+  jump?: { cfi: string; nonce: number };
+  onJumpHandled: (nonce: number) => void;
   onHover: (hit: MarkHit | null) => void;
   onClick: (hit: MarkHit) => void;
 }
@@ -25,6 +26,7 @@ export function Reader({
   onSelection,
   preferences,
   jump,
+  onJumpHandled,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
@@ -68,9 +70,9 @@ export function Reader({
   useEffect(() => {
     if (jump && viewRef.current) {
       mode.current = 'jump';
-      void viewRef.current.goTo(jump);
+      void viewRef.current.goTo(jump.cfi).then(() => onJumpHandled(jump.nonce));
     }
-  }, [jump]);
+  }, [jump, onJumpHandled]);
   useEffect(() => {
     const view = viewRef.current;
     if (!view?.renderer) return;
@@ -177,6 +179,13 @@ export function Reader({
         })
         .catch(() => setError('位置暂时未能保存'));
     });
+    const pause = () => {
+      void window.vivid.pauseReading(book.id).catch(() => {});
+    };
+    const visibility = () => {
+      if (document.hidden) pause();
+    };
+    document.addEventListener('visibilitychange', visibility);
     window.addEventListener('keydown', key);
     void (async () => {
       try {
@@ -191,7 +200,9 @@ export function Reader({
           `html,body{background:${root.getPropertyValue('--paper')};color:${root.getPropertyValue('--ink')};font-family:${root.getPropertyValue('--voice-book')};font-size:${prefs.current.fontSize}px;line-height:${prefs.current.lineHeight}}body{margin:0}p{text-indent:2em;text-align:justify;margin:0 0 .6em;text-spacing-trim:normal;text-autospace:normal}h1{font-size:32px;line-height:1.35;margin:0 0 36px;font-weight:600}a{color:inherit}`,
         );
         setItems(view.book.toc);
-        await view.init({ lastLocation: book.currentCFI });
+        const saved = await window.vivid.readerState();
+        if (disposed) return;
+        await view.init({ lastLocation: saved?.currentCFI ?? book.currentCFI });
         await view.renderer.getContents()[0].doc.fonts.ready;
         await new Promise<void>((resolve) =>
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -203,6 +214,8 @@ export function Reader({
     })();
     return () => {
       disposed = true;
+      pause();
+      document.removeEventListener('visibilitychange', visibility);
       window.removeEventListener('keydown', key);
       markCleanup.forEach((fn) => fn());
       markCleanup.clear();
